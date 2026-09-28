@@ -1,0 +1,6 @@
+*
+!build/
+!build/server.mjs
+!dist/
+!dist/**
+!Dockerfile

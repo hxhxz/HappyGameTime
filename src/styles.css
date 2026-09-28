@@ -1,0 +1,363 @@
+:root {
+  --bg: #0f1420; --panel: #1a2233; --panel2: #222d44; --line: #2e3a55;
+  --text: #e8edf6; --muted: #8b97ad; --accent: #ffcb05; --accent2: #3b6bd6; --good: #46c46a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: radial-gradient(1100px 560px at 50% -10%, #1b2747, var(--bg)); color: var(--text);
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+button { font-family: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.4; }
+.app { max-width: 1360px; margin: 0 auto; padding: 8px 12px 16px; }
+
+/* 顶栏 */
+.topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.topbar h1 { font-size: 18px; margin: 2px 0; }
+.subtitle { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.setup { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.setup select, .seed-input { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 5px; }
+.seed-input { width: 64px; }
+
+.turnbar { margin: 6px 0; padding: 5px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; display: flex; gap: 14px; align-items: center; min-height: 20px; flex-wrap: wrap; font-size: 13px; }
+.turn-info b { color: var(--accent); }
+.winner-banner { font-size: 16px; color: var(--accent); font-weight: 700; }
+.discard-note { color: #ffb454; }
+.evolve-note { color: #c7a6ff; }
+.final-note { color: #ff6b6b; font-weight: 700; }
+.thinking { color: var(--muted); font-style: italic; }
+
+/* 布局 */
+.layout { display: grid; grid-template-columns: 1fr 332px; gap: 12px; align-items: start; }
+.board { display: flex; flex-direction: column; gap: 6px; }
+.section-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+
+/* 阶层行 */
+.tier-row { display: flex; gap: 8px; align-items: stretch; }
+.deck-pile { width: 52px; flex: 0 0 52px; background: linear-gradient(160deg, #30406b, #1d2740); border: 1px solid var(--line); border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 4px; }
+.deck-label { font-size: 15px; font-weight: 800; color: var(--accent); }
+.deck-count { font-size: 10px; color: var(--muted); }
+.cards-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; flex: 1; }
+
+/* 底部一行:左=传说/稀有(两个窄格并排) 右=供给区(填满高度) */
+.bottom-row { display: flex; gap: 8px; align-items: stretch; }
+.bottom-row .bank-section { flex: 1; }
+.special-section { display: flex; flex-direction: row; gap: 8px; flex: 0 0 auto; }
+.special-cell { display: flex; flex-direction: column; gap: 4px; width: 122px; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 6px; }
+.special-cell.rare { border-top: 3px solid #b8902f; }
+.special-cell.legendary { border-top: 3px solid #9a4fd0; }
+.special-head { display: flex; flex-direction: row; justify-content: space-between; align-items: center; }
+.special-label { font-weight: 800; font-size: 14px; }
+.special-cell .card { width: 100%; max-width: none; min-height: 150px; }
+
+/* 卡牌 */
+.card { background: var(--panel2); border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: 9px; padding: 5px; min-height: 196px; display: flex; flex-direction: column; gap: 2px; position: relative; }
+.card.affordable { box-shadow: 0 0 0 2px var(--good), 0 3px 12px rgba(70,196,106,0.22); }
+.card.empty { align-items: center; justify-content: center; color: var(--muted); border-style: dashed; min-height: 196px; }
+.card.special.rare { background: linear-gradient(180deg, #2c2613, var(--panel2)); }
+.card.special.legendary { background: linear-gradient(180deg, #2e1740, var(--panel2)); }
+.card-head { display: flex; justify-content: space-between; align-items: center; position: absolute; top: 5px; left: 6px; right: 6px; z-index: 2; }
+.card-points { font-size: 18px; font-weight: 800; color: var(--accent); text-shadow: 0 1px 3px #000, 0 0 4px #000; min-height: 20px; }
+.card-bonus { min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; box-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+.card-art { height: 104px; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+.card-art img { max-height: 104px; max-width: 100%; object-fit: contain; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4)); }
+.card-name { font-size: 12px; font-weight: 700; line-height: 1.05; }
+.card-name-en { display: block; font-size: 8px; color: var(--muted); font-weight: 400; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.tag { font-size: 9px; border-radius: 4px; padding: 1px 4px; background: #2b3550; color: var(--muted); display: inline-flex; align-items: center; gap: 2px; }
+.rare-tag { background: #5a4a1e; color: #ffcf7a; }
+.legendary-tag { background: #4a2466; color: #d9b3ff; }
+.evo-tag { background: #16402a; color: #6ff0a0; }
+.evo-tag .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.card-cost { display: flex; gap: 3px; flex-wrap: wrap; margin-top: auto; }
+.cost-chip { position: relative; min-width: 20px; text-align: center; border-radius: 5px; font-size: 12px; font-weight: 700; padding: 1px 5px; }
+.cost-chip.master { box-shadow: 0 0 0 1px #fff inset; }
+.cost-base { position: absolute; top: -8px; right: -5px; font-size: 9px; color: #ff9d9d; }
+.card-actions { display: flex; gap: 5px; margin-top: 3px; }
+
+.btn { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; font-size: 12px; }
+.btn:hover:not(:disabled) { border-color: var(--accent2); }
+.btn.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; font-weight: 600; }
+.btn.buy { background: var(--good); border-color: var(--good); color: #06270f; font-weight: 700; flex: 1; }
+.btn.reserve { flex: 1; }
+.btn.tiny { padding: 2px 6px; font-size: 10px; }
+.btn.ghost { background: transparent; color: var(--muted); border-style: dashed; }
+.btn.evolve-btn { background: #16402a; border-color: #2a6b46; color: #9ff5bd; font-weight: 600; }
+
+/* 代币 / 操作区 */
+.bank-section { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; }
+.token-bank { margin-top: 5px; }
+.bank-tokens { display: flex; gap: 12px; flex-wrap: wrap; }
+.bank-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.token-big { width: 52px; height: 52px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.25); display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 800; position: relative; }
+.token-big.selected { outline: 3px solid var(--accent); transform: translateY(-3px); }
+.token-big.master { border-style: dashed; }
+.token-name { font-size: 11px; line-height: 1.1; }
+.token-count { font-size: 15px; line-height: 1.1; }
+.token-sel-dot { position: absolute; top: -4px; right: -4px; width: 13px; height: 13px; background: var(--accent); border-radius: 50%; }
+.bank-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.hint { font-size: 10px; color: var(--muted); }
+
+.evolve-panel, .discard-panel { display: flex; flex-direction: column; gap: 8px; }
+.evolve-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.discard-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.discard-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.stepper { display: flex; align-items: center; gap: 6px; }
+.step-val { min-width: 16px; text-align: center; font-weight: 700; }
+
+/* 侧栏 */
+.sidebar { display: flex; flex-direction: column; gap: 8px; }
+.players { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.player-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; position: relative; }
+.owned-pop { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 30; margin-top: 4px; background: #0e1422; border: 1px solid var(--accent2); border-radius: 8px; padding: 7px 9px; box-shadow: 0 8px 24px rgba(0,0,0,0.55); }
+.player-panel:hover .owned-pop { display: block; }
+.owned-pop-title { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+.owned-pop-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 220px; overflow-y: auto; }
+.player-panel.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.player-head { display: flex; justify-content: space-between; align-items: center; }
+.player-name { font-weight: 700; font-size: 13px; }
+.player-points { font-weight: 800; color: var(--accent); font-size: 13px; }
+.row-label { font-size: 10px; color: var(--muted); margin: 5px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.token-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.mini-token { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 5px; }
+.mini-bonus { font-size: 11px; font-weight: 700; border: 1.5px solid; border-radius: 4px; padding: 1px 5px; background: transparent; }
+.mini-bonus.zero { opacity: 0.32; }
+.combo-row { display: flex; flex-direction: column; gap: 2px; }
+.combo-head, .combo-cell { display: grid; grid-template-columns: 14px 1.1fr 1fr 1fr; align-items: center; gap: 8px; }
+.combo-head { font-size: 9px; color: var(--muted); padding: 0 8px; }
+.combo-head span { text-align: right; }
+.combo-cell { border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; background: rgba(255,255,255,0.03); }
+.combo-dot { width: 11px; height: 11px; border-radius: 50%; }
+.combo-power { text-align: right; font-weight: 800; font-size: 14px; color: var(--accent); }
+.combo-hand { text-align: right; font-weight: 600; font-size: 12px; }
+.combo-bonus { text-align: right; font-weight: 700; font-size: 12px; }
+.combo-bonus.muted { color: var(--muted); }
+.reserved-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.reserved-row .card { min-height: 120px; padding: 4px; }
+.reserved-row .card-art { height: 42px; }
+.reserved-row .card-art img { max-height: 42px; }
+.muted { color: var(--muted); font-size: 12px; }
+
+.log { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; }
+.log ul { list-style: none; margin: 5px 0 0; padding: 0; max-height: 132px; overflow-y: auto; }
+.log li { font-size: 11px; color: var(--muted); padding: 2px 0; border-bottom: 1px solid var(--line); }
+
+/* 进化高亮 */
+.card.evo-can { outline: 2px solid #38bdf8; outline-offset: 1px; }
+.card.evo-target { box-shadow: inset 0 0 0 1px #d9a441; }
+.evo-can-tag { background: #0e3a4d; color: #7fd7ff; font-weight: 700; }
+.evo-tgt-tag { background: #3a2e12; color: #e8c06a; }
+.evo-need-tag { background: #1a2740; color: var(--muted); }
+.evo-need-tag .dot { display: inline-flex; align-items: center; justify-content: center; min-width: 12px; height: 12px; border-radius: 6px; font-size: 8px; font-style: normal; color: #fff; padding: 0 2px; margin-left: 1px; }
+
+/* 我的宝可梦 */
+.owned-team { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; }
+.owned-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; max-height: 156px; overflow-y: auto; }
+.owned-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 2px 7px; }
+.owned-chip .odot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.owned-chip sup { color: var(--muted); font-size: 8px; }
+.owned-chip .oevo { font-style: normal; font-size: 9px; border-radius: 6px; padding: 0 5px; }
+.owned-chip.e-can { border-color: #38bdf8; }
+.oevo.can { background: #0e3a4d; color: #7fd7ff; font-weight: 700; }
+.oevo.ready { background: #3a2e12; color: #e8c06a; }
+.oevo.need { background: #2b3550; color: var(--muted); }
+
+/* 我的预订(独立区) */
+.reserve-area { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; }
+.reserve-area .reserved-row { margin-top: 5px; }
+
+/* 菜单 / 大厅 / 联机 */
+.menu { max-width: 600px; margin: 5vh auto; text-align: center; }
+.menu h1 { font-size: 30px; margin: 6px 0; }
+.menu-sub { color: var(--muted); margin-top: 0; }
+.menu-foot { color: var(--muted); font-size: 12px; margin-top: 18px; }
+.menu code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+.big-btn { display: block; width: 100%; margin: 10px 0; padding: 16px; font-size: 17px; border-radius: 12px; }
+.url-input { width: 100%; max-width: 420px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); margin: 8px auto; font-size: 14px; }
+.join-row { display: flex; gap: 8px; justify-content: center; margin: 10px 0; }
+.join-row .url-input { margin: 0; }
+.lobby-seats { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.lobby-seat { display: flex; justify-content: space-between; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
+.conn-status { font-size: 12px; color: var(--muted); }
+.err-toast { color: #ff6b6b; cursor: pointer; }
+
+/* ============ 手机(竖屏)============ */
+@media (max-width: 860px) {
+  .app { padding: 6px 7px 12px; }
+  .topbar { gap: 5px; }
+  .topbar h1 { font-size: 15px; margin: 0; }
+  .turnbar { margin: 4px 0; padding: 4px 9px; font-size: 12px; gap: 8px; }
+  .layout { grid-template-columns: 1fr; gap: 6px; }
+
+  /* 玩家:移到棋盘上方,横向滚动的紧凑条 */
+  .sidebar { order: -1; gap: 6px; }
+  .players { display: flex; overflow-x: auto; gap: 6px; padding-bottom: 2px; }
+  .player-panel { min-width: 170px; flex: 0 0 auto; padding: 5px 7px; }
+  .player-panel .row-label { display: none; }       /* 省竖向空间:去标签 */
+  .player-panel .reserved-row { display: none; }     /* 预订区在面板里隐藏 */
+  .player-panel .token-row { margin-top: 3px; }
+  .mini-token, .mini-bonus { font-size: 10px; padding: 0 4px; }
+  .log { display: none; }                            /* 手机隐藏日志 */
+  .owned-team { padding: 5px 7px; order: 2; }        /* 保留「我的宝可梦」,横向紧凑一行 */
+  .owned-chips { flex-wrap: nowrap; overflow-x: auto; max-height: none; }
+  .owned-chip { flex: 0 0 auto; }
+
+  /* 棋盘:更小的卡 */
+  .board { gap: 5px; }
+  .tier-row { gap: 5px; }
+  .deck-pile { width: 30px; flex: 0 0 30px; padding: 3px 1px; }
+  .deck-label { font-size: 12px; }
+  .deck-pile .deck-count, .deck-pile .btn.tiny { display: none; }
+  .cards-row { gap: 4px; }
+  .bottom-row { flex-direction: column; }
+  .special-section { flex: none; }
+  .card { min-height: 172px; padding: 4px; gap: 1px; }
+  .card.empty { min-height: 172px; }
+  .card-art { height: 80px; }
+  .card-art img { max-height: 80px; }
+  .card-name { font-size: 10px; }
+  .card-name-en { display: none; }
+  .card-points { font-size: 14px; min-height: 16px; }
+  .card-bonus { height: 17px; min-width: 17px; font-size: 10px; }
+  .card-tags { display: none; }                      /* 手机省空间:进化/阶层标签隐藏 */
+  .cost-chip { min-width: 16px; font-size: 10px; padding: 0 3px; }
+  .card-actions { gap: 4px; }
+  .btn.buy, .btn.reserve { padding: 3px 0; font-size: 11px; }
+  .special-section { gap: 6px; }
+  .special-cell { padding: 4px; gap: 5px; }
+  .special-head { min-width: 36px; }
+  .special-label { font-size: 12px; }
+  .special-cell .card { flex: 0 0 88px; max-width: 88px; }
+
+  .bank-section { padding: 6px 8px; }
+  .bank-tokens { gap: 5px; justify-content: space-between; }
+  .bank-col { gap: 3px; }
+  .token-big { width: 40px; height: 40px; border-width: 2px; }
+  .token-name { font-size: 9px; }
+  .token-count { font-size: 12px; }
+  .hint { display: none; }
+}
+
+/* ============================ Apple 风格主题(覆盖层) ============================ */
+:root {
+  --bg: #000307;
+  --panel: rgba(255, 255, 255, 0.055);
+  --panel2: rgba(255, 255, 255, 0.04);
+  --line: rgba(255, 255, 255, 0.10);
+  --text: #f5f5f7;
+  --muted: #9a9aa2;
+  --accent: #ffd60a;   /* 分数:宝可梦黄(Apple 黄) */
+  --accent2: #0a84ff;  /* 交互:Apple 系统蓝 */
+  --good: #30d158;     /* Apple 绿 */
+}
+body {
+  background:
+    radial-gradient(1000px 560px at 50% -16%, rgba(40, 84, 168, 0.22), transparent 70%),
+    radial-gradient(800px 500px at 85% 110%, rgba(120, 60, 170, 0.14), transparent 70%),
+    #000307;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: 0.15px;
+}
+.topbar h1, .menu h1 { font-weight: 600; letter-spacing: 0.4px; }
+.section-label { letter-spacing: 1.2px; font-weight: 500; }
+
+/* 毛玻璃材质面板 */
+.turnbar, .bank-section, .player-panel, .owned-team, .reserve-area, .log,
+.special-cell, .lobby-seat, .card, .deck-pile {
+  background: var(--panel);
+  -webkit-backdrop-filter: saturate(160%) blur(22px);
+  backdrop-filter: saturate(160%) blur(22px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 10px 34px rgba(0, 0, 0, 0.30);
+}
+.card { border-top: 1px solid var(--line); border-radius: 16px; padding: 7px; }
+.card.affordable { box-shadow: 0 0 0 2px var(--good), 0 10px 30px rgba(48, 209, 88, 0.22); }
+.card.evo-can { outline: 2px solid var(--accent2); }
+.deck-pile { border-radius: 14px; }
+
+/* 按钮:Apple 胶囊 */
+.btn { border-radius: 980px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); font-weight: 500; transition: background .15s ease, border-color .15s ease, transform .05s ease; }
+.btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.24); }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn.primary { background: var(--accent2); border-color: transparent; color: #fff; }
+.btn.buy { background: var(--good); border-color: transparent; color: #04210e; }
+.btn.evolve-btn { background: rgba(48, 209, 88, 0.16); border-color: rgba(48, 209, 88, 0.4); color: #6ff0a0; }
+.big-btn { border-radius: 18px; padding: 17px; font-weight: 600; }
+
+/* 代币球 / 圆点:更润的高光 */
+.token-big { border: none; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), inset 0 3px 7px rgba(255, 255, 255, 0.35), inset 0 -3px 7px rgba(0, 0, 0, 0.25); }
+.token-big.selected { outline: 3px solid var(--accent2); outline-offset: 2px; }
+.card-bonus, .cost-chip, .combo-dot, .req-chip, .mini-token { box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.3); }
+.card-points { color: var(--accent); }
+
+/* 当前玩家:Apple 蓝聚焦 */
+.player-panel.current { border-color: var(--accent2); box-shadow: 0 0 0 1px var(--accent2), 0 10px 34px rgba(10, 132, 255, 0.22); }
+.combo-cell { background: rgba(255, 255, 255, 0.04); border-color: var(--line); }
+.combo-power { color: var(--accent); }
+
+/* 输入框 */
+.seed-input, .url-input, .setup select { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); border-radius: 10px; color: var(--text); }
+
+/* 滚动条(细) */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Apple 微调 r2:稀有/传说卡与标签融入毛玻璃 */
+.card.special.rare { background: linear-gradient(180deg, rgba(255, 214, 10, 0.12), var(--panel)); }
+.card.special.legendary { background: linear-gradient(180deg, rgba(191, 90, 242, 0.14), var(--panel)); }
+.special-cell.rare { border-top-color: rgba(255, 214, 10, 0.55); }
+.special-cell.legendary { border-top-color: rgba(191, 90, 242, 0.6); }
+.tag { background: rgba(255, 255, 255, 0.08); border-radius: 6px; color: var(--muted); }
+.rare-tag { background: rgba(255, 214, 10, 0.16); color: #ffe066; }
+.legendary-tag { background: rgba(191, 90, 242, 0.18); color: #e0b3ff; }
+.evo-can-tag { background: rgba(10, 132, 255, 0.18); color: #7fc0ff; }
+.evo-need-tag { background: rgba(255, 255, 255, 0.07); }
+.winner-banner, .turn-info b { color: var(--accent); }
+
+/* Apple 微调 r3:手机紧凑(降低整页高度,信息仍在) */
+@media (max-width: 860px) {
+  .card-art { height: 66px; } .card-art img { max-height: 66px; }
+  .card { min-height: 150px; }
+  .card.empty { min-height: 150px; }
+  .combo-head { display: none; }                 /* 手机省一行:列头去掉 */
+  .combo-cell { padding: 1px 6px; gap: 5px; }
+  .combo-power { font-size: 12px; }
+  .combo-hand, .combo-bonus { font-size: 11px; }
+  .player-panel { min-width: 156px; }
+  .owned-chips { max-height: 64px; }
+  .row-label { font-size: 9px; margin: 3px 0 1px; }
+}
+
+/* Apple 微调 r4:桌面收进一屏 + 底部带平衡(仅桌面,不动手机) */
+.app { padding: 6px 12px 10px; }
+@media (min-width: 861px) {
+  .card-art { height: 88px; } .card-art img { max-height: 88px; }
+  .card { min-height: 176px; } .card.empty { min-height: 176px; }
+  .board { gap: 5px; }
+  .special-cell { width: 168px; }            /* 传说/稀有更宽,不挤 */
+  .special-cell .card { min-height: 150px; }
+  .bank-section { display: flex; flex-direction: column; justify-content: center; }
+  .bank-tokens { justify-content: space-around; width: 100%; }  /* 球横向铺满右侧 */
+}
+
+/* Pokémon training room */
+:root{--bg:#10282b;--panel:#183438;--panel2:#204247;--line:#355257;--text:#f1f6f4;--muted:#aec3c4;--accent:#f6cf68;--accent2:#137e85;--good:#8de2bc}
+body{background:#10282b;background-image:radial-gradient(ellipse at top left,#234b4c 0,transparent 60%);font-size:16px;letter-spacing:0;}
+a{color:#9de6dd}button,input{font:inherit}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #f6cf68;outline-offset:3px}input{width:100%;min-width:0;padding:12px 14px;color:var(--text);background:#10282b;border:1px solid #547377;border-radius:8px}label{display:block;font-size:14px;font-weight:600}label input{margin-top:8px}small{font-size:12px;color:var(--muted)}
+.app{max-width:1560px;padding:24px 32px;margin:auto}.trainer-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding-bottom:20px;border-bottom:1px solid var(--line)}.brand{display:flex;gap:14px;align-items:center}.brand-mark{display:grid;place-items:center;font-size:42px;color:#ef7068;width:56px;height:56px;background:#f4eee2;border-radius:50%;line-height:1}.eyebrow{font-size:11px;font-weight:700;letter-spacing:2px;color:#aecbc8;margin-bottom:6px}.trainer-header h1{margin:0;font-size:25px;font-weight:800;letter-spacing:1px}.trainer-header h1 span{font-size:17px;font-weight:400;color:#c4d8d5;margin-left:8px}.trainer-header nav{display:flex;gap:8px}.btn{font-size:14px;padding:8px 14px;border-radius:8px;min-height:36px}.btn.primary{background:#f6cf68;color:#183438;font-weight:700}.btn.primary:hover:not(:disabled){background:#ffe098}.btn.tiny{font-size:12px;min-height:28px;padding:4px 8px}.btn.buy{color:#133c30}.training-meta{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);padding:14px 0}.training-meta b{font-size:10px;font-weight:500;letter-spacing:1px;margin-left:12px;color:#77c8ba}.agent-status,.setup-banner{display:flex;justify-content:space-between;align-items:center;gap:16px;background:#1b3c40;border:1px solid #396366;border-radius:10px;padding:14px 18px;margin-bottom:12px}.agent-status b{font-size:15px}.agent-status span{display:block;font-size:13px;color:#bbd0ce;margin-top:5px}.agent-status.is-thinking{border-left:4px solid #f6cf68}.setup-banner{border-color:#be9e4c;background:#3b3d2a}.setup-banner p{font-size:14px;color:#d7d2ae;margin:6px 0 0}.turnbar{font-size:14px;padding:10px 14px;margin:0 0 14px;border-radius:8px;background:#0c2023;box-shadow:none}.layout{grid-template-columns:minmax(0,1fr) 330px;gap:18px}.board{gap:12px}.tier-row{gap:12px}.deck-pile{background:#1c363a;box-shadow:none;border-radius:8px;width:65px;flex-basis:65px}.deck-label{font-size:20px}.deck-count{font-size:12px}.cards-row{min-width:0;gap:10px;grid-template-columns:repeat(4,minmax(0,1fr))}.card{border-radius:10px;background:#e9eee4;color:#183438;padding:10px;border-top:5px solid;box-shadow:0 3px 0 #071b20;backdrop-filter:none;min-height:220px;gap:5px}.card.special.rare{background:#f2e8cf}.card.special.legendary{background:#e6dff0}.card.empty{background:#183438;color:var(--muted)}.card-head{top:8px;left:10px;right:10px}.card-points{font-size:25px;font-weight:900;color:#183438;text-shadow:none}.card-bonus{width:23px;height:23px;font-size:12px;border:2px solid #fff}.card-art{height:104px;margin-top:0;background:radial-gradient(ellipse,#cedbc8,transparent 66%)}.card-art img{max-height:104px}.card-name{font-size:16px;line-height:1.3;font-weight:800}.card-tags{min-height:18px;gap:5px}.tag{font-size:11px;background:#d9e2d5;color:#3b5d50;padding:2px 5px}.evo-need-tag{background:#d9e2d5;color:#345248}.evo-need-tag .dot{font-size:10px;min-width:16px;height:16px}.cost-chip{font-size:14px;min-width:24px;padding:2px 6px;border:1px solid #ffffff88;border-radius:50px}.card-cost{gap:4px}.card .btn.reserve{background:#d9e2d5;color:#25443b;border:1px solid #b8c9bc}.card .btn.buy{background:#18664f;color:white}.card .btn:disabled{opacity:.38}.card-actions{gap:6px}.card-actions .btn{font-size:13px;padding:5px 8px;min-height:30px}.bottom-row{flex-wrap:wrap;gap:12px}.special-cell{width:150px;background:#19363b;padding:8px;border-radius:10px}.special-cell .card{min-height:202px;max-width:none}.special-label{font-size:14px}.bank-section{padding:14px;border-radius:10px;min-width:250px}.bank-tokens{gap:10px}.token-big{width:46px;height:46px}.token-name{font-size:12px}.token-count{font-size:16px}.hint{font-size:12px;line-height:1.6;display:block}.section-label{font-size:13px;letter-spacing:0}.sidebar{gap:12px}.players{gap:8px}.player-panel{padding:12px 10px;border-radius:10px;box-shadow:none;background:#19363b}.player-panel.current{border-color:#f6cf68;box-shadow:inset 0 3px #f6cf68}.player-name,.player-points{font-size:14px}.row-label{font-size:12px;margin:8px 0 5px}.combo-head{font-size:10px;padding:0 4px}.combo-cell{gap:4px;padding:3px 4px}.combo-power{font-size:14px}.combo-hand,.combo-bonus{font-size:12px}.owned-pop{background:#19363b}.reserve-area,.owned-team,.log{padding:12px;border-radius:10px;box-shadow:none}.reserved-row{grid-template-columns:repeat(auto-fit,minmax(86px,1fr))}.reserved-row .card-name{font-size:13px}.reserved-row .card-tags{display:none}.reserved-row .card-points{font-size:16px}.log ul{max-height:160px}.log li{font-size:12px;padding:6px 0;line-height:1.5}.owned-chip{font-size:12px;padding:5px 8px}.owned-chip .oevo{font-size:11px}.decision-section{margin-top:28px}.section-heading{display:flex;align-items:center;gap:18px;margin-bottom:12px}.section-heading h2{font-size:19px;margin:0}.section-heading span{font-size:13px;color:var(--muted)}.decision-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.decision-card{background:#19363b;border:1px solid var(--line);border-left:3px solid #c29cda;padding:18px;border-radius:8px}.agent-赤焰{border-left-color:#ed8472}.agent-青岚{border-left-color:#79c7b2}.decision-card header{display:flex;justify-content:space-between;gap:8px;font-size:15px}.decision-card header span{font-size:12px;color:var(--muted)}.decision-card h3{font-size:15px;margin:14px 0 6px}.decision-card p{font-size:14px;color:#c7d7d3;line-height:1.7;margin-bottom:0}.decision-card small{margin-left:7px}.page-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}.rules-box{background:#19363b;border:1px solid var(--line);padding:20px;border-radius:10px;margin-bottom:16px}.rules-box h2{font-size:18px;margin-top:0}.rules-box p{font-size:14px;line-height:1.8}.board-locked{pointer-events:none;opacity:.7}.error-box,.success-box{background:#4e2d2c;color:#ffd1c7;padding:12px 16px;border-radius:8px;font-size:14px;line-height:1.5;margin:10px 0;overflow-wrap:anywhere}.error-box button{margin-left:12px}.success-box{background:#214c40;color:#c0f2db}.modal-backdrop{position:fixed;inset:0;z-index:100;background:#071c22cc;backdrop-filter:blur(5px);display:grid;place-items:center;padding:20px;overflow:auto}.modal{background:#19363b;border:1px solid #547377;width:min(560px,100%);padding:28px;border-radius:16px;max-height:90vh;overflow:auto;box-shadow:0 30px 90px #0005}.modal header{display:flex;align-items:center;justify-content:space-between;gap:12px}.modal h2{font-size:22px;margin:0 0 12px}.modal header h2{margin:0}.modal p{font-size:14px;line-height:1.7;color:#c5d8d3}.modal label{margin-top:20px}.modal small{display:block;margin-top:8px;line-height:1.5}.modal label small{display:inline;font-weight:400}.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}.key-note{background:#10282b;padding:12px;border-radius:8px}.login-page{min-height:100vh;display:grid;place-items:center;padding:24px}.login-card{width:min(440px,100%);border:1px solid #466c6d;background:#19363b;border-radius:20px;padding:40px;box-shadow:0 30px 90px #0003}.login-card .brand-mark{margin-bottom:30px}.login-card h1{font-size:30px;margin:10px 0}.login-card p{color:var(--muted)}.login-seats{display:flex;gap:10px;margin:28px 0}.login-seats span{background:#29484a;padding:7px 12px;border-radius:20px;font-size:13px}.login-card form .btn{width:100%;margin:18px 0 24px;padding:12px}.login-card input{margin-top:10px}
+@media(max-width:1150px){.app{padding:20px}.layout{grid-template-columns:minmax(0,1fr) 280px}.players{grid-template-columns:1fr 1fr}.player-name{font-size:12px}.combo-head{font-size:9px}.card{padding:7px}.card-art{height:85px}.card-art img{max-height:85px}.card-name{font-size:14px}.special-cell{width:125px}.trainer-header h1 span{display:block;margin:4px 0 0}}
+@media(max-width:860px){.app{padding:16px 12px}.trainer-header{gap:10px;align-items:flex-start}.brand{gap:10px}.brand-mark{width:40px;height:40px;font-size:31px}.eyebrow{font-size:9px;letter-spacing:1px}.trainer-header h1{font-size:19px}.trainer-header h1 span{font-size:13px}.trainer-header nav{gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:190px}.trainer-header .btn{font-size:12px;padding:6px 9px}.training-meta{font-size:11px;flex-wrap:wrap}.layout{grid-template-columns:1fr}.sidebar{order:0;display:grid;grid-template-columns:1fr 1fr}.players{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-column:1/-1;overflow:visible}.player-panel{min-width:0;padding:8px}.combo-head{display:none}.combo-cell{grid-template-columns:10px 1fr 1fr 1fr;gap:3px}.combo-power,.combo-hand,.combo-bonus{font-size:11px}.player-head{flex-wrap:wrap;gap:4px}.player-panel .row-label{display:block;font-size:10px;white-space:normal}.log{display:block;grid-column:1/-1}.owned-team{order:0}.owned-chips{flex-wrap:wrap}.card{min-height:210px}.card-art{height:80px}.card-art img{max-height:80px}.card-tags{display:flex}.deck-pile{width:42px;flex-basis:42px}.deck-pile .deck-count{display:block;font-size:10px}.deck-pile .btn.tiny{display:block;writing-mode:vertical-rl;font-size:11px;padding:6px}.tier-row{gap:8px}.cards-row{gap:7px}.card-actions{flex-wrap:wrap}.card-actions .btn{font-size:12px;padding:5px;min-height:32px}.bottom-row{display:grid;grid-template-columns:1fr 1fr}.special-section{grid-column:1;display:flex}.special-cell{width:50%;min-width:0}.special-cell .card{max-width:none;flex:1;min-height:180px}.bank-section{min-width:0}.token-big{width:42px;height:42px}.bank-tokens{gap:8px;justify-content:flex-start}.bank-col{gap:5px}.token-name{font-size:11px}.decision-grid{grid-template-columns:1fr}.agent-status span{font-size:12px}.setup-banner{align-items:flex-start}.setup-banner .btn{flex-shrink:0}.reserve-area{min-width:0}.reserved-row{grid-template-columns:1fr}.reserved-row .card{max-width:160px}.modal{padding:22px}}
+@media(max-width:520px){.cards-row{grid-template-columns:repeat(2,minmax(0,1fr))}.card{min-height:207px}.card-name{font-size:15px}.card-art{height:90px}.card-art img{max-height:90px}.bottom-row{display:flex;flex-direction:column}.special-section{width:100%}.special-cell{width:50%}.special-cell .card-art{height:100px}.special-cell .card-art img{max-height:100px}.players{grid-template-columns:1fr 1fr}.player-name{font-size:14px}.combo-head{display:grid;font-size:10px}.combo-cell{padding:4px}.combo-power,.combo-hand,.combo-bonus{font-size:13px}.training-meta b{display:none}.trainer-header nav{max-width:150px}.trainer-header nav .btn{min-height:32px}.trainer-header h1{white-space:nowrap}.login-card{padding:28px}.decision-section{margin-top:22px}.page-footer{align-items:flex-start}.setup-banner{flex-direction:column}.agent-status{padding:12px;gap:8px}.agent-status .btn{flex-shrink:0;font-size:12px;padding:7px 10px}.card .cost-chip{font-size:13px}}
+.buy-action-wrap{display:flex;flex:1;min-width:0;flex-direction:column;align-items:stretch;gap:3px}.buy-action-wrap .btn{width:100%}.master-spend-hint{align-self:center;display:inline-flex;align-items:center;gap:4px;color:#754398;background:#efe4f6;border:1px solid #c9acd9;border-radius:5px;padding:2px 6px;font-size:11px;font-weight:800;line-height:1}.master-spend-hint i{width:9px;height:9px;background:#7b3fa0;border-radius:2px;box-shadow:inset 0 0 0 1px #ffffff88}
+.tier-drawer{background:#153136;border:1px solid #315257;border-radius:12px;overflow:hidden}.tier-drawer.is-open{background:#18383c}.tier-drawer-head{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 12px;user-select:none}.drawer-toggle{display:flex;align-items:center;gap:10px;align-self:stretch;flex:1;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.tier-drawer-head strong{font-size:17px;color:#f6cf68}.drawer-chevron{width:9px;height:9px;border-right:2px solid #9ebdb9;border-bottom:2px solid #9ebdb9;transform:rotate(-45deg);transition:transform .18s}.tier-drawer.is-open .drawer-chevron{transform:rotate(45deg) translate(-2px,-2px)}.tier-drawer-head .deck-count{color:#9eb3b0}.drawer-reserve{margin-left:auto}.tier-drawer-body{padding:0 12px 12px;grid-template-columns:repeat(4,minmax(0,1fr))}
+.my-assets-strip{display:flex;align-items:center;gap:8px;overflow-x:auto;margin:-6px 0 14px;padding:9px 12px;background:#10282b;border:1px solid #2b4b4f;border-radius:9px}.asset-strip-title{font-size:12px;font-weight:700;color:#d5e4e1;white-space:nowrap;margin-right:3px}.asset-color{display:grid;grid-template-columns:12px auto;grid-template-rows:auto auto;column-gap:5px;min-width:45px;align-items:center}.asset-color>i{grid-row:1/3;width:12px;height:24px;border-radius:4px}.asset-color b{font-size:14px;line-height:1;color:#fff}.asset-color em{font-size:10px;line-height:1.2;color:#91c9bd;font-style:normal;white-space:nowrap}.asset-color.master>i{border:1px solid #c9a9dc}.asset-strip-legend{margin-left:auto;color:#789793;font-size:10px;white-space:nowrap}.asset-strip-legend em{color:#91c9bd;font-style:normal}
+.purchase-power-row{display:flex;align-items:center;gap:8px;flex:1 0 100%;min-width:max-content;padding-top:7px;border-top:1px solid #28464a}.purchase-power-row small{width:66px;color:#a7bfbb;font-size:11px;font-weight:700}.purchase-power-row b{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:45px;color:#fff;font-size:13px}.purchase-power-row b i{display:inline-block;width:12px;height:12px;border-radius:3px}.purchase-power-row b.master i{border:1px solid #c9a9dc}
+.backpack-fab{position:fixed;z-index:70;right:22px;bottom:22px;display:grid;grid-template-columns:auto auto;align-items:center;gap:0 7px;min-width:94px;padding:10px 14px;border:1px solid #d7bb6b;border-radius:16px;background:#f6cf68;color:#173438;box-shadow:0 10px 32px #0007;cursor:pointer}.backpack-fab span{grid-row:1/3;font-size:25px}.backpack-fab b{font-size:13px;text-align:left}.backpack-fab em{font-size:10px;font-style:normal;text-align:left}.backpack-backdrop{position:fixed;inset:0;z-index:90;background:#06181dcc;display:flex;align-items:flex-end;justify-content:flex-end;padding:20px}.backpack-panel{width:min(580px,100%);max-height:min(82vh,760px);overflow:auto;background:#17373b;border:1px solid #58787b;border-radius:18px;padding:22px;box-shadow:0 24px 80px #0008}.backpack-panel>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.backpack-panel h2{margin:4px 0 0;font-size:22px}.backpack-summary{font-size:13px;color:#a9bfbc;border-bottom:1px solid #315257;padding-bottom:14px}.backpack-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.backpack-card{display:flex;gap:10px;min-width:0;padding:10px;background:#e9eee4;color:#183438;border-radius:11px;border-left:4px solid #80b8ad}.backpack-card>img{width:58px;height:58px;object-fit:contain;flex:0 0 auto}.backpack-card-main{min-width:0;flex:1}.backpack-card-main>div:first-child{display:flex;align-items:baseline;justify-content:space-between;gap:6px}.backpack-card-main strong{font-size:14px}.backpack-card-main>div:first-child span{font-size:10px;color:#667d76;white-space:nowrap}.backpack-bonus{display:flex;align-items:center;gap:5px;font-size:11px;margin:5px 0}.backpack-bonus i,.upgrade-needs span i{display:inline-block;width:9px;height:9px;border-radius:3px}.upgrade-needs{display:flex;gap:4px;align-items:center;flex-wrap:wrap}.upgrade-needs small{width:100%;font-size:10px;color:#526c65}.upgrade-needs span{display:inline-flex;align-items:center;gap:3px;padding:2px 4px;border-radius:4px;background:#f3d7d2;color:#7e352d;font-size:10px}.upgrade-needs span.met{background:#cfe8d7;color:#24603b}.max-stage{font-size:10px;color:#607a72}
+@media(max-width:860px){.tier-drawer-head{min-height:43px}.tier-drawer-body{padding:0 8px 8px;gap:5px}.my-assets-strip{margin-top:-7px;flex-wrap:wrap}.purchase-power-row{gap:7px}.purchase-power-row small{width:54px}.purchase-power-row b{min-width:38px}.backpack-fab{right:12px;bottom:12px}.backpack-panel{max-height:88vh}.backpack-grid{grid-template-columns:1fr}}
+@media(max-width:520px){.cards-row,.tier-drawer-body{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:3px}.tier-drawer-head{padding:6px 8px}.tier-drawer-head strong{font-size:15px}.tier-drawer-head .deck-count{font-size:9px}.drawer-reserve{font-size:9px!important;padding:3px 5px!important;min-height:27px!important}.tier-drawer-body .card{min-height:162px;padding:4px;border-top-width:3px;border-radius:7px;gap:2px}.tier-drawer-body .card-head{top:3px;left:4px;right:4px}.tier-drawer-body .card-points{font-size:16px}.tier-drawer-body .card-bonus{width:18px;min-width:18px;height:18px;padding:0;font-size:9px;border-width:1px}.tier-drawer-body .card-art{height:48px;margin-top:3px}.tier-drawer-body .card-art img{max-height:48px}.tier-drawer-body .card-name{font-size:10px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tier-drawer-body .card-tags{min-height:13px}.tier-drawer-body .tag{font-size:8px;padding:1px 2px}.tier-drawer-body .evo-need-tag{display:none}.tier-drawer-body .card-cost{gap:2px}.tier-drawer-body .cost-chip{font-size:9px!important;min-width:15px;padding:1px 3px}.tier-drawer-body .card-actions{gap:2px}.tier-drawer-body .card-actions .btn{font-size:9px;padding:3px 2px;min-height:25px}.tier-drawer-body .master-spend-hint{font-size:8px;padding:1px 3px}.tier-drawer-body .master-spend-hint i{width:7px;height:7px}.my-assets-strip{gap:7px;padding:8px}.asset-strip-title,.asset-strip-legend{display:none}.asset-color{min-width:38px}.backpack-fab{min-width:76px;padding:8px 10px;border-radius:13px}.backpack-fab span{font-size:21px}.backpack-panel{padding:16px;border-radius:16px}.backpack-card>img{width:50px;height:50px}}
+.my-assets-strip{flex-wrap:wrap}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}

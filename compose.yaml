@@ -1,0 +1,25 @@
+services:
+  pokemon-trainer:
+    build: .
+    image: pokemon-trainer:2026-09-25
+    container_name: pokemon-trainer
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8788:8788"
+    env_file: .env
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 256m
+    cpus: 0.50
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8788/pokemon/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
