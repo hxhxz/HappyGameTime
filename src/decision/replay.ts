@@ -2,6 +2,7 @@ import { applyAction, legalMoves, passTurn } from '../engine';
 import type { Action, GameState } from '../engine/types';
 import { playerView, publicView, viewHash } from './views';
 import { ENV_VERSION, type PublicView } from './types';
+import type { ArtifactIdentity } from './types';
 
 export interface ReplayStep {
   t: number;
@@ -16,13 +17,14 @@ export interface EpisodeRecord {
   schemaVersion: 2;
   episodeId: string;
   envVersion: string;
+  artifact: ArtifactIdentity;
   initialState: GameState;
   steps: ReplayStep[];
   outcome?: { winnerId?: string; scores: Record<string, number>; turns: number };
 }
 
-export function newEpisodeRecord(episodeId: string, initialState: GameState): EpisodeRecord {
-  return { schemaVersion: 2, episodeId, envVersion: ENV_VERSION, initialState: structuredClone(initialState), steps: [] };
+export function newEpisodeRecord(episodeId: string, initialState: GameState, artifact: ArtifactIdentity): EpisodeRecord {
+  return { schemaVersion: 2, episodeId, envVersion: ENV_VERSION, artifact, initialState: structuredClone(initialState), steps: [] };
 }
 
 export function appendReplayStep(record: EpisodeRecord, before: GameState, action: Action | null, after: GameState): void {
@@ -57,4 +59,3 @@ export function replayEpisode(record: EpisodeRecord): GameState {
   }
   return state;
 }
-

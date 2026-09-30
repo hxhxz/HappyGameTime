@@ -69,7 +69,7 @@ export function createGame(opts: NewGameOptions): GameState {
   if (n < 2 || n > 4) throw new Error(`玩家数必须为 2–4，收到 ${n}`);
   const playerCount = n as 2 | 3 | 4;
   const config: GameConfig = { ...DEFAULT_CONFIG, ...opts.config };
-  const rng = makeRng(opts.seed);
+  const rng = makeRng(opts.seed, 'setup');
 
   const byPile: Record<PileKey, Card[]> = { 1: [], 2: [], 3: [], rare: [], legendary: [] };
   for (const card of opts.cards) byPile[pileOf(card)].push(card);

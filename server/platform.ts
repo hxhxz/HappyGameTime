@@ -1,12 +1,14 @@
 import { DISABLED_REGRET_GATE, linearRegretGate, type LinearRegretGateModel } from '../src/decision/gate';
 import type { RegretGate } from '../src/decision/types';
 import type { Settings } from './agent';
+import { NullLlmProvider, OpenAiCompatibleProvider, type LlmProvider } from './llm-provider';
+import type { PersonaMode } from './strategy';
 
 export type LlmInvocationMode = 'always' | 'regret_gated';
 export type SeatConfig =
   | { kind: 'human'; name: string }
-  | { kind: 'engine'; name: string; style: '抢分型' | '进化型' | '控场型' }
-  | { kind: 'llm'; name: string; style: '抢分型' | '进化型' | '控场型'; modelProfileId: string; invocationMode: LlmInvocationMode };
+  | { kind: 'engine'; name: string; style: '抢分型' | '进化型' | '控场型'; personaMode: PersonaMode }
+  | { kind: 'llm'; name: string; style: '抢分型' | '进化型' | '控场型'; personaMode: PersonaMode; modelProfileId: string; invocationMode: LlmInvocationMode };
 
 export interface SessionConfig {
   mode: 'play' | 'experiment';
@@ -57,14 +59,20 @@ export function modelSettings(profileId: string): Settings {
   return { baseUrl: profile.baseUrl, model: profile.model, apiKey };
 }
 
+export function llmProvider(profileId?: string): LlmProvider {
+  if (!profileId) return new NullLlmProvider();
+  const settings = modelSettings(profileId);
+  return new OpenAiCompatibleProvider(`openai-compatible:${profileId}`, settings);
+}
+
 export function defaultSessionConfig(): SessionConfig {
   return {
     mode: 'play', gateThreshold: 0.5, evidenceMode: 'marginalized',
     seats: [
       { kind: 'human', name: '你' },
-      { kind: 'engine', name: '赤焰', style: '抢分型' },
-      { kind: 'engine', name: '青岚', style: '进化型' },
-      { kind: 'engine', name: '紫苑', style: '控场型' },
+      { kind: 'engine', name: '赤焰', style: '抢分型', personaMode: 'neutral' },
+      { kind: 'engine', name: '青岚', style: '进化型', personaMode: 'neutral' },
+      { kind: 'engine', name: '紫苑', style: '控场型', personaMode: 'neutral' },
     ],
   };
 }
@@ -79,10 +87,12 @@ export function validateSessionConfig(value: unknown): SessionConfig {
       if (!['always', 'regret_gated'].includes(seat.invocationMode)) throw new Error('invalid LLM invocation mode');
       modelSettings(seat.modelProfileId);
     }
+    if (seat.kind !== 'human' && seat.personaMode !== undefined && !['neutral', 'scoring', 'evolution', 'control'].includes(seat.personaMode)) throw new Error('invalid persona mode');
   }
+  const seats = config.seats.map(seat => seat.kind === 'human' ? seat : { ...seat, personaMode: seat.personaMode ?? 'neutral' }) as SeatConfig[];
   const gateThreshold = Number(config.gateThreshold ?? 0.5);
   if (!(gateThreshold >= 0 && gateThreshold <= 1)) throw new Error('gate threshold must be in [0,1]');
-  return { mode: config.mode, seats: config.seats as SeatConfig[], gateThreshold, evidenceMode: 'marginalized' };
+  return { mode: config.mode, seats, gateThreshold, evidenceMode: 'marginalized' };
 }
 
 export function configuredRegretGate(): RegretGate {
@@ -93,4 +103,3 @@ export function configuredRegretGate(): RegretGate {
   if (!model.version || !Number.isFinite(model.intercept) || !Number.isFinite(model.threshold) || !model.weights) throw new Error('invalid regret gate model');
   return linearRegretGate(model);
 }
-

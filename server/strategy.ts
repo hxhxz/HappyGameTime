@@ -1,8 +1,9 @@
 import { applyAction, buildBuyAction, totalTokens, type Action, type Card, type GameState, type PlayerState } from '../src/engine';
-import { evaluationTerms, DEFAULT_WEIGHTS, type EvaluationTerms } from '../src/ai/heuristic';
+import { evaluationTerms, DEFAULT_WEIGHTS, type EvaluationTerms, type Weights } from '../src/ai/heuristic';
 import { ALL_PILES, COLOR_ORDER, WIN_THRESHOLD, pileOf, type PileKey } from '../src/engine/types';
 
 export type AgentStyle = '抢分型' | '进化型' | '控场型';
+export type PersonaMode = 'neutral' | 'scoring' | 'evolution' | 'control';
 export const DEFAULT_CANDIDATE_LIMIT = 8;
 
 export interface CandidateScoreTerms {
@@ -231,7 +232,15 @@ function diverseSlice(ranked: RankedCandidate[], limit: number): RankedCandidate
   return chosen.sort((a, b) => b.score - a.score);
 }
 
-export function rankCandidates(state: GameState, moves: Action[], style: AgentStyle, limit = DEFAULT_CANDIDATE_LIMIT): RankedCandidate[] {
+function personaMode(style: AgentStyle | PersonaMode): PersonaMode {
+  if (style === '抢分型') return 'scoring';
+  if (style === '进化型') return 'evolution';
+  if (style === '控场型') return 'control';
+  return style;
+}
+
+/** Produce persona-neutral evidence. Personal preferences are a separate policy transform. */
+export function scoreCandidates(state: GameState, moves: Action[], weights: Weights = DEFAULT_WEIGHTS): RankedCandidate[] {
   const idx = state.currentPlayerIndex;
   const before = state.players[idx];
   const beforeBonus = COLOR_ORDER.reduce((sum, c) => sum + before.bonuses[c], 0);
@@ -251,7 +260,7 @@ export function rankCandidates(state: GameState, moves: Action[], style: AgentSt
     const bonusGained = bonusAfter - beforeBonus;
     const evolutionGained = after.evolved.length - before.evolved.length;
     const expectedAffordable = expectedAffordableCardValue(state, after, action);
-    const evaluation = evaluationTerms(afterState, idx, DEFAULT_WEIGHTS, { affordableCardValue: expectedAffordable });
+    const evaluation = evaluationTerms(afterState, idx, weights, { affordableCardValue: expectedAffordable });
     const progress = targetProgress(before, after, targets);
     const targetProgressContribution = progress;
     const discardPenalty = afterState.awaitingDiscard ? -Math.max(0, totalTokens(after.tokens) - 10) * 18 : 0;
@@ -272,21 +281,7 @@ export function rankCandidates(state: GameState, moves: Action[], style: AgentSt
     const skipEvolution = action.type === 'END_TURN' && moves.some(m => m.type === 'EVOLVE') ? -100 : 0;
     const crowdedReserve = action.type === 'RESERVE' && before.reserved.length >= 2 ? -8 : 0;
     const winThreshold = after.points >= WIN_THRESHOLD ? 160 : 0;
-    let personality = 0;
-    if (style === '抢分型') {
-      personality += pointsGained * 18;
-      if (after.points >= WIN_THRESHOLD) personality += 100;
-      if (action.type === 'BUY' && card) personality += card.points * 5;
-    } else if (style === '进化型') {
-      personality += bonusGained * 10 + evolutionGained * 45;
-      if (action.type === 'BUY' && card?.evolvesToSpeciesId) personality += 8;
-      if (action.type === 'RESERVE' && card && before.purchased.some(c => c.evolvesToSpeciesId === card.speciesId)) personality += 18;
-    } else {
-      if (action.type === 'RESERVE' && card) personality += opponentDemand(state, card, idx) * 8 + card.points * 2;
-      const leader = Math.max(...state.players.filter((_, i) => i !== idx).map(p => p.points));
-      if (leader >= WIN_THRESHOLD - 4 && action.type === 'RESERVE' && card) personality += opponentDemand(state, card, idx) * 10;
-      personality += pointsGained * 7;
-    }
+    const personality = 0;
     const score = evaluation.total + pointsGained * 42 + bonusGained * 7 + evolutionGained * 30
       + targetProgressContribution + discardPenalty + idleTokenPenalty + handPressurePenalty
       + buyBaseTempo + buyEfficiencyContribution + evolveAction + skipEvolution + crowdedReserve + winThreshold + personality;
@@ -301,7 +296,41 @@ export function rankCandidates(state: GameState, moves: Action[], style: AgentSt
     });
   }
   ranked.sort((a, b) => b.score - a.score);
-  return diverseSlice(ranked, limit);
+  return ranked;
+}
+
+export function applyPersonaPreference(state: GameState, candidates: RankedCandidate[], style: AgentStyle | PersonaMode): RankedCandidate[] {
+  const mode = personaMode(style);
+  if (mode === 'neutral') return candidates.map(candidate => structuredClone(candidate));
+  const idx = state.currentPlayerIndex;
+  const before = state.players[idx];
+  return candidates.map(candidate => {
+    const copy = structuredClone(candidate);
+    const card = cardForAction(state, before, copy.action);
+    let preference = 0;
+    if (mode === 'scoring') {
+      preference += copy.outcome.pointsGained * 18;
+      if (copy.outcome.pointsAfter >= WIN_THRESHOLD) preference += 100;
+      if (copy.action.type === 'BUY' && card) preference += card.points * 5;
+    } else if (mode === 'evolution') {
+      preference += copy.outcome.bonusGained * 10 + copy.outcome.evolutionGained * 45;
+      if (copy.action.type === 'BUY' && card?.evolvesToSpeciesId) preference += 8;
+      if (copy.action.type === 'RESERVE' && card && before.purchased.some(owned => owned.evolvesToSpeciesId === card.speciesId)) preference += 18;
+    } else if (mode === 'control') {
+      if (copy.action.type === 'RESERVE' && card) preference += opponentDemand(state, card, idx) * 8 + card.points * 2;
+      const leader = Math.max(...state.players.filter((_, i) => i !== idx).map(player => player.points));
+      if (leader >= WIN_THRESHOLD - 4 && copy.action.type === 'RESERVE' && card) preference += opponentDemand(state, card, idx) * 10;
+      preference += copy.outcome.pointsGained * 7;
+    }
+    copy.terms.personality = preference;
+    copy.terms.total += preference;
+    copy.score += preference;
+    return copy;
+  }).sort((a, b) => b.score - a.score);
+}
+
+export function rankCandidates(state: GameState, moves: Action[], style: AgentStyle | PersonaMode = 'neutral', limit = DEFAULT_CANDIDATE_LIMIT, weights: Weights = DEFAULT_WEIGHTS): RankedCandidate[] {
+  return diverseSlice(applyPersonaPreference(state, scoreCandidates(state, moves, weights), style), limit);
 }
 
 export function candidateDebugLine(candidate: RankedCandidate, rank: number, state: GameState): string {

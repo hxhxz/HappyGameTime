@@ -2,17 +2,17 @@ import { lookup } from 'node:dns/promises';
 import https from 'node:https';
 import { isIP } from 'node:net';
 import type { Card, GameState } from '../src/engine/types';
-import { actionLabel, type RankedCandidate } from './strategy';
-import { AGENTS } from './agents';
+import type { Action } from '../src/engine/types';
+import type { PlayerView } from '../src/decision/types';
+import type { RankedCandidate, PersonaMode } from './strategy';
 
-export { AGENTS } from './agents';
 export const PROMPT_CACHE_VERSION = 'pokemon-trainer-cache-v2';
 export const STATIC_SYSTEM_PROMPT = `${PROMPT_CACHE_VERSION}
 你是《璀璨宝石·宝可梦陪练》的决策 Agent。四人各自争胜，任一玩家达到18分后触发最终轮。永久资产 bonuses 抵扣对应颜色的捕捉成本，tokens.master 是可以补颜色缺口的大师球。主动作后，当已有前置宝可梦、永久资产满足进化需求且下一阶在市场或本人预订区时，可免费进化一次；免费进化通常优于直接结束回合。
 身份规则：youAre 是你的唯一身份来源。youAre.seat 是你的座位，youAre.name 是你的名字，youAre.points 是你的当前分数。绝不要把 players[0] 或其他座位当成自己。state.activePlayer 必须等于 youAre.seat。对手预订牌和未公开牌库是隐藏信息，不得猜测。
 状态字段：state.phase 是 main/discard/evolve；players[].points 是分数；tokens 是手牌；bonuses 是永久资产；purchased 是已有宝可梦；reserved 是预订区；market 是公开市场。卡牌字段 n=名称、lv=阶段、pt=分数、cost=捕捉成本、bonus=获得的永久资产、to=进化目标、evo=进化所需永久资产。
-候选字段：candidateActions 由规则引擎遍历全部合法动作、模拟后继状态并按人格评分后筛选。actionId 是唯一可返回的动作索引；heuristicRank 越小越推荐；outcome.pointsAfter 是执行后分数，pointsGained 是本次得分，tokenCountAfter 是执行后手牌数，bonusGained 是新增永久资产，evolutionGained 是新增进化次数，mustDiscard 表示随后必须弃球。只能选候选中的动作，不得编造。
-人格定义：赤焰是抢分型，优先即时得分、把资源转换为分数并在终局冲刺；青岚是进化型，优先可持续的永久资产、连贯进化链和免费进化，但不得忽视获胜节奏；紫苑是控场型，优先预订对手即将获得的关键牌和稀缺资源，但干扰不得压过自身得分效率。
+候选字段：candidateActions 由规则引擎遍历全部合法动作、模拟后继状态并按显式 personaMode 评分后筛选；默认 neutral 不带人格偏置。actionId 是唯一可返回的动作索引；heuristicRank 越小越推荐；outcome.pointsAfter 是执行后分数，pointsGained 是本次得分，tokenCountAfter 是执行后手牌数，bonusGained 是新增永久资产，evolutionGained 是新增进化次数，mustDiscard 表示随后必须弃球。只能选候选中的动作，不得编造。
+人格模式：neutral 仅使用中性证据；scoring 偏重即时得分；evolution 偏重资产和进化链；control 偏重公开可见的阻断机会。身份名称本身不决定人格，只有 youAre.personaMode 生效。
 通用决策标准：优先真实得分、免费进化和可持续的永久资产；避免无目标囤球、取球后立即大量弃球、长期买不起的预订，以及只为干扰而牺牲获胜的行为。
 输出协议：只输出一个 JSON 对象，格式为 {"selfPoints":整数,"actionId":整数,"explanation":"与当前数据一致的中文说明，最多60字"}。selfPoints 必须等于 youAre.points，不得输出额外文本或思考过程。`;
 export interface Settings { baseUrl: string; model: string; apiKey: string }
@@ -66,7 +66,7 @@ function responseText(content: unknown): string {
     return typeof value.text === 'string' ? value.text : typeof value.content === 'string' ? value.content : '';
   }).join('');
 }
-export async function completion(settings: Settings, messages: { role: string; content: string }[], signal?: AbortSignal): Promise<{ content: string; tokens: number; promptTokens: number; cacheHitTokens: number; cacheMissTokens: number }> {
+export async function completion(settings: Settings, messages: { role: string; content: string }[], signal?: AbortSignal): Promise<{ content: string; tokens: number; promptTokens: number; cacheHitTokens: number; cacheMissTokens: number; rawResponse: unknown }> {
   if (!settings.apiKey || !settings.model) throw new Error('请先配置模型和 API Key');
   const contextTokens = estimateContextTokens(messages);
   if (contextTokens > MAX_CONTEXT_TOKENS) throw new Error(`模型上下文过长（约 ${contextTokens} tokens，上限 ${MAX_CONTEXT_TOKENS}）`);
@@ -98,7 +98,7 @@ export async function completion(settings: Settings, messages: { role: string; c
         const promptTokens = Number(json.usage?.prompt_tokens) || 0;
         const cacheHitTokens = Number(json.usage?.prompt_cache_hit_tokens ?? json.usage?.prompt_tokens_details?.cached_tokens) || 0;
         const cacheMissTokens = Number(json.usage?.prompt_cache_miss_tokens) || Math.max(0, promptTokens - cacheHitTokens);
-        resolve({ content: answer, tokens: Number(json.usage?.total_tokens) || 0, promptTokens, cacheHitTokens, cacheMissTokens });
+        resolve({ content: answer, tokens: Number(json.usage?.total_tokens) || 0, promptTokens, cacheHitTokens, cacheMissTokens, rawResponse: json });
       });
     });
     const timeout = setTimeout(() => req.destroy(new Error('模型响应超过 60 秒，请重试或更换模型')), 60_000);
@@ -141,11 +141,35 @@ export function parseDecision(content: string, count: number, expectedSelfPoints
   }
   return { actionId: obj.actionId, explanation: obj.explanation.trim().slice(0, 500), selfPoints: obj.selfPoints };
 }
-export function messagesFor(g: GameState, candidates: RankedCandidate[]) {
-  const agent = AGENTS[g.currentPlayerIndex - 1];
+export interface PromptSeat {
+  seat: number;
+  name: string;
+  personaMode: PersonaMode;
+}
+
+function actionLabelFromView(action: Action, view: PlayerView): string {
+  const cardName = (id: string) => {
+    for (const deck of view.decks) for (const card of deck.faceUp) if (card?.id === id) return card.name;
+    for (const card of view.privateReserved) if (card.id === id) return card.name;
+    for (const player of view.players) for (const card of player.purchased) if (card.id === id) return card.name;
+    return id;
+  };
+  switch (action.type) {
+    case 'BUY': return `捕捉 ${cardName(action.source.cardId)}`;
+    case 'RESERVE': return action.source.kind === 'deck' ? `盲抽预订 T${action.source.pile}` : `预订 ${cardName(action.source.cardId)}`;
+    case 'TAKE_THREE': return `拿取 ${action.colors.join('、')}`;
+    case 'TAKE_TWO': return `拿取 2 个 ${action.color}`;
+    case 'EVOLVE': return `${cardName(action.fromCardId)} → ${cardName(action.toCardId)}`;
+    case 'DISCARD': return `归还 ${Object.entries(action.tokens).filter(([, count]) => count).map(([token, count]) => `${token}:${count}`).join('、')}`;
+    case 'END_TURN': return '结束回合';
+  }
+}
+
+/** Pure prompt builder: every identity and persona input is explicit. */
+export function messagesFor(view: PlayerView, candidates: RankedCandidate[], seat: PromptSeat) {
   const compactAction = (candidate: RankedCandidate, actionId: number) => {
     const action = candidate.action;
-    const base = { actionId, label: actionLabel(action, g), heuristicRank: actionId + 1, heuristicScore: candidate.score, outcome: candidate.outcome };
+    const base = { actionId, label: actionLabelFromView(action, view), heuristicRank: actionId + 1, heuristicScore: candidate.score, outcome: candidate.outcome };
     switch (action.type) {
       case 'BUY': return { ...base, type: 'buy', from: action.source.kind, cardId: action.source.cardId };
       case 'RESERVE': return action.source.kind === 'board' ? { ...base, type: 'reserve', cardId: action.source.cardId } : { ...base, type: 'reserveDeck', pile: action.source.pile };
@@ -156,15 +180,16 @@ export function messagesFor(g: GameState, candidates: RankedCandidate[]) {
       case 'END_TURN': return { ...base, type: 'end' };
     }
   };
-  const me = g.players[g.currentPlayerIndex];
+  const me = view.players.find(player => player.id === view.viewerId);
+  if (!me) throw new Error('prompt viewer missing from player view');
   const system = { role: 'system', content: STATIC_SYSTEM_PROMPT };
   const candidateActions = candidates.map(compactAction);
   const build = (logLimit: number) => [
     system,
-    { role: 'user', content: JSON.stringify({ youAre: { seat: g.currentPlayerIndex, name: agent.name, style: agent.style, points: me.points }, state: observation(g, logLimit), candidateActions }) },
+    { role: 'user', content: JSON.stringify({ youAre: { seat: seat.seat, name: seat.name, personaMode: seat.personaMode, points: me.points }, state: { ...view, recentPublicHistory: view.recentPublicHistory.slice(-logLimit) }, candidateActions }) },
   ];
   const inputBudget = MAX_CONTEXT_TOKENS - MAX_OUTPUT_TOKENS - CONTEXT_SAFETY_TOKENS;
-  let low = 0, high = Math.min(g.log.length, MAX_RECENT_LOG_ENTRIES), best = build(0);
+  let low = 0, high = Math.min(view.recentPublicHistory.length, MAX_RECENT_LOG_ENTRIES), best = build(0);
   // Recent actions are useful for immediate tactics; older raw logs add cost and
   // stale-state confusion. Keep a bounded suffix, still respecting token budget.
   while (low <= high) {

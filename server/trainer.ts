@@ -1,20 +1,26 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, statSync } from 'node:fs';
 import { resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGame, applyAction, legalMoves, passTurn, type GameState, type Action } from '../src/engine';
+import { makeRng } from '../src/engine/rng';
 import { PAYABLE_ORDER } from '../src/engine/types';
 import { CARDS } from '../src/data/cards';
 import { serializeState, deserializeState } from '../src/net/serialize';
 import { appendReplayStep, newEpisodeRecord, type EpisodeRecord } from '../src/decision/replay';
 import { cheapGateFeatures } from '../src/decision/gate';
-import { ENV_VERSION, type CandidateEvidence, type DecisionRecord, type HeuristicEvidence } from '../src/decision/types';
-import { playerView, publicView, viewHash } from '../src/decision/views';
+import { ENV_VERSION, type DecisionRecord } from '../src/decision/types';
+import { publicView, viewHash } from '../src/decision/views';
+import { artifactIdentity, interactiveEpisodeId } from '../src/decision/identity';
 import { AGENTS } from './agents';
-import { actionLabel, candidateDebugLine, candidateExplanation, rankCandidates, type CandidateScoreTerms } from './strategy';
-import { completion, messagesFor, parseDecision } from './agent';
-import { configuredRegretGate, defaultSessionConfig, modelSettings, publicModelProfiles, validateSessionConfig, type SessionConfig } from './platform';
+import { actionLabel, candidateDebugLine, candidateExplanation, type CandidateScoreTerms } from './strategy';
+import { configuredRegretGate, defaultSessionConfig, llmProvider, publicModelProfiles, validateSessionConfig, type SessionConfig } from './platform';
+import { buildCandidatePipeline } from './policy-runtime';
+import { CandidateTopPolicy, LlmRerankPolicy, PolicyRegistry, RegretGatedPolicy, type PolicyContext } from './policy-registry';
+import { pomcpHonest, uniformOpponentStudent } from './pomcp';
+import { PomcpDecisionPolicy } from './pomcp-policy';
+import { ExperimentRunner, type ExperimentSpec } from './experiment-runner';
 
 const dataDir = resolve(process.env.DATA_DIR || 'data');
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -52,6 +58,24 @@ let thinking = false;
 let agentError = '';
 let generation = 0;
 let usage = { calls: 0, tokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 };
+const codeRevision = process.env.CODE_REVISION || 'development';
+function buildExperimentRegistry(): PolicyRegistry {
+  const registry = new PolicyRegistry();
+  const baseline = new CandidateTopPolicy();
+  registry.register(baseline);
+  registry.register(new PomcpDecisionPolicy('pomcp-honest-uniform', 'v1-best-response-reference', 64, 2));
+  for (const profile of publicModelProfiles().filter(item => item.configured)) {
+    const enhanced = new LlmRerankPolicy(`llm-always:${profile.id}`, llmProvider(profile.id), profile.model);
+    registry.register(enhanced);
+    registry.register(new RegretGatedPolicy(`llm-regret-gated:${profile.id}`, baseline, enhanced, configuredRegretGate(), .5));
+  }
+  return registry;
+}
+const experimentRegistry = buildExperimentRegistry();
+const experimentRunner = new ExperimentRunner(experimentRegistry);
+function createEpisode(state: GameState, config: SessionConfig): EpisodeRecord {
+  return newEpisodeRecord(interactiveEpisodeId(randomUUID()), state, artifactIdentity(config, codeRevision));
+}
 function fresh(config = sessionConfig) {
   return createGame({ players: config.seats.map((seat, i) => ({ id: `P${i}`, name: seat.name, isAI: seat.kind !== 'human' })), cards: CARDS, seed: randomBytes(4).readUInt32LE() });
 }
@@ -61,8 +85,8 @@ if (existsSync(stateFile)) {
   usage = { ...usage, ...(saved.usage || {}) };
   researchRecords = saved.researchRecords || [];
   sessionConfig = saved.sessionConfig ? validateSessionConfig(saved.sessionConfig) : defaultSessionConfig();
-  episode = saved.episode ? { ...saved.episode, initialState: deserializeState(JSON.stringify(saved.episode.initialState)) } : newEpisodeRecord(`episode-${Date.now()}`, game);
-} else { game = fresh(); episode = newEpisodeRecord(`episode-${Date.now()}`, game); }
+  episode = saved.episode ? { ...saved.episode, initialState: deserializeState(JSON.stringify(saved.episode.initialState)) } : createEpisode(game, sessionConfig);
+} else { game = fresh(); episode = createEpisode(game, sessionConfig); }
 function atomic(path: string, text: string) { writeFileSync(`${path}.tmp`, text, { mode: 0o600 }); renameSync(`${path}.tmp`, path); }
 function serializableEpisode() { return { ...episode, initialState: JSON.parse(serializeState(episode.initialState)) }; }
 function persist() { atomic(stateFile, JSON.stringify({ game: JSON.parse(serializeState(game)), decisions, researchRecords, sessionConfig, episode: serializableEpisode(), revision, usage })); }
@@ -78,7 +102,7 @@ function view() {
   delete visible.reservationOrigins;
   for (const d of Object.values(visible.decks) as { drawPile: unknown[] }[]) d.drawPile = Array(d.drawPile.length).fill({ id: 'hidden' });
   visible.players.forEach((p: { reserved: unknown[] }, i: number) => { if (i) p.reserved = p.reserved.map((_, j) => ({ id: `hidden-${i}-${j}` })); });
-  return { game: visible, decisions: decisions.map(decisionSummary), revision, paused, thinking, agentError, configured: configured(), settings: publicSettings(), usage, sessionConfig };
+  return { game: visible, decisions: decisions.map(decisionSummary), revision, paused, thinking, agentError, configured: configured(), settings: publicSettings(), usage, sessionConfig, experimentPolicies: experimentRegistry.list() };
 }
 function cancel() { generation++; thinking = false; }
 async function tick() {
@@ -91,43 +115,50 @@ async function tick() {
     const agent = AGENTS[snapshot.currentPlayerIndex - 1];
     const seat = sessionConfig.seats[snapshot.currentPlayerIndex];
     const style = seat && seat.kind !== 'human' ? seat.style : agent.style;
-    const candidates = rankCandidates(snapshot, moves, style);
+    const personaMode = seat && seat.kind !== 'human' ? seat.personaMode : 'neutral';
+    const pipeline = buildCandidatePipeline(snapshot, moves, personaMode);
+    const candidates = pipeline.ranked;
     if (process.env.DEBUG_HEURISTIC === '1') candidates.forEach((candidate, i) => console.debug(candidateDebugLine(candidate, i + 1, snapshot)));
     if (ticket !== generation) return;
     const baseline = candidates[0];
     let choice = baseline;
     let modelInput: { role: string; content: string }[] | undefined;
     let rawCompletion: string | undefined;
+    let rawModelResponse: unknown;
     let parsedOutput: unknown;
     let latencyMs = 0;
     let fallbackUsed = false;
     let fallbackReason: string | undefined;
-    const pv = playerView(snapshot);
-    const evidence: CandidateEvidence[] = candidates.map(candidate => ({
-      action: candidate.action,
-      heuristic: { terms: flattenTerms(candidate.terms), total: candidate.score, mode: 'marginalized' } satisfies HeuristicEvidence,
-    }));
+    const pv = pipeline.view;
+    const evidence = pipeline.evidence;
+    const policyContext: PolicyContext = {
+      view: pv, legalActions: moves, candidates: evidence, rankedCandidates: candidates,
+      seat: { seat: snapshot.currentPlayerIndex, name: seat?.name ?? agent.name, personaMode },
+      rng: makeRng(snapshot.rngSeed, `policy/${episode.episodeId}/${episode.steps.length}`),
+      search: request => pomcpHonest(snapshot, { ...request, seed: snapshot.rngSeed ^ episode.steps.length, opponent: uniformOpponentStudent }),
+    };
+    const baselineDecision = await experimentRegistry.resolve('heuristic-honest').decide(policyContext);
     const gate = configuredRegretGate();
     const prediction = gate.predict(cheapGateFeatures(pv, evidence));
     const gateAvailable = prediction.modelVersion !== 'disabled-v1';
     const gateTriggered = seat?.kind === 'llm' && (seat.invocationMode === 'always' || (gateAvailable && prediction.highRegretProbability >= sessionConfig.gateThreshold));
     let llmUsage = { total: 0, prompt: 0, cacheHit: 0, cacheMiss: 0 };
     if (gateTriggered && seat.kind === 'llm') {
-      modelInput = messagesFor(snapshot, candidates);
-      const started = Date.now();
       try {
-        const result = await completion(modelSettings(seat.modelProfileId), modelInput);
-        latencyMs = Date.now() - started;
-        rawCompletion = result.content;
-        parsedOutput = parseDecision(result.content, candidates.length, snapshot.players[snapshot.currentPlayerIndex].points);
-        choice = candidates[(parsedOutput as { actionId: number }).actionId];
-        llmUsage = { total: result.tokens, prompt: result.promptTokens, cacheHit: result.cacheHitTokens, cacheMiss: result.cacheMissTokens };
-        usage.calls++; usage.tokens += result.tokens; usage.cacheHitTokens += result.cacheHitTokens; usage.cacheMissTokens += result.cacheMissTokens;
+        const policy = experimentRegistry.resolve(`llm-always:${seat.modelProfileId}`);
+        const decision = await policy.decide(policyContext);
+        choice = candidates[decision.chosenIndex];
+        modelInput = decision.trace.exactMessages;
+        rawCompletion = decision.trace.responseText;
+        rawModelResponse = decision.trace.rawResponse;
+        parsedOutput = decision.trace.parsedOutput;
+        latencyMs = decision.cost.latencyMs;
+        llmUsage = decision.cost.usage;
+        usage.calls++; usage.tokens += llmUsage.total; usage.cacheHitTokens += llmUsage.cacheHit; usage.cacheMissTokens += llmUsage.cacheMiss;
       } catch (error) {
-        latencyMs = Date.now() - started;
         fallbackUsed = true;
         fallbackReason = error instanceof Error ? error.message : 'LLM failure';
-        choice = baseline;
+        choice = candidates[baselineDecision.chosenIndex];
       }
     }
     const action = choice.action;
@@ -145,6 +176,7 @@ async function tick() {
       modelInput, rawCompletion, fallbackUsed,
     });
     researchRecords.push({
+      artifact: episode.artifact,
       decisionId: `${episode.episodeId}:${episode.steps.length - 1}`,
       episodeId: episode.episodeId, envVersion: ENV_VERSION,
       policyVersion: seat?.kind === 'llm' ? `llm-reranker-${seat.invocationMode}-v1` : 'honest-heuristic-v1',
@@ -154,7 +186,7 @@ async function tick() {
       gateDecision: seat?.kind === 'llm' ? { modelVersion: prediction.modelVersion, expectedRegret: prediction.expectedRegret, highRegretProbability: prediction.highRegretProbability, threshold: sessionConfig.gateThreshold, triggered: gateTriggered } : undefined,
       llm: gateTriggered && seat?.kind === 'llm' ? {
         slot: 'reranker', modelProfileId: seat.modelProfileId, promptProfileId: 'pokemon-reranker-v2',
-        exactMessages: modelInput ?? [], rawResponse: rawCompletion ?? null, parsedOutput,
+        exactMessages: modelInput ?? [], rawResponse: rawModelResponse ?? null, parsedOutput,
         samplingParams: { mode: seat.invocationMode }, latencyMs, tokenUsage: llmUsage, error: fallbackReason,
       } : undefined,
       baselineAction: baseline.action, chosenAction: action, fallbackUsed, fallbackReason,
@@ -168,12 +200,6 @@ async function tick() {
   } finally {
     if (ticket === generation) { thinking = false; if (!paused) setTimeout(() => void tick(), 800); }
   }
-}
-
-function flattenTerms(value: unknown, prefix = '', out: Record<string, number | boolean> = {}): Record<string, number | boolean> {
-  if (typeof value === 'number' || typeof value === 'boolean') { out[prefix || 'value'] = value; return out; }
-  if (value && typeof value === 'object') for (const [key, child] of Object.entries(value as Record<string, unknown>)) flattenTerms(child, prefix ? `${prefix}.${key}` : key, out);
-  return out;
 }
 function json(res: ServerResponse, status: number, obj: unknown) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); }
 function exportRecord(res: ServerResponse) {
@@ -240,7 +266,8 @@ export const server = createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://cdn.jsdelivr.net data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   try {
-    const path = new URL(req.url || '/', 'http://localhost').pathname;
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const path = requestUrl.pathname;
     if (path === `${base}/api/health` && req.method === 'GET') return json(res, 200, { status: 'ok', app: 'pokemon-trainer' });
     if (path.startsWith(`${base}/api/`)) {
       if (req.method !== 'GET' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return json(res, 403, { error: '不接受跨站请求' });
@@ -257,13 +284,21 @@ export const server = createServer(async (req, res) => {
       if (!authenticated(req)) return json(res, 401, { error: '请先输入访问口令' });
       if (path === `${base}/api/state` && req.method === 'GET') return json(res, 200, view());
       if (path === `${base}/api/export` && req.method === 'GET') return exportRecord(res);
+      if (path === `${base}/api/experiments` && req.method === 'GET') {
+        const id = requestUrl.searchParams.get('id');
+        return json(res, 200, id ? experimentRunner.get(id) : experimentRunner.list());
+      }
       if (req.method !== 'POST') return json(res, 404, { error: '接口不存在' });
       const b = await body(req);
       switch (path) {
+        case `${base}/api/experiments`: {
+          const job = experimentRunner.create(b.spec as unknown as ExperimentSpec);
+          return json(res, 202, job);
+        }
         case `${base}/api/new`: {
           ensureRevision(b.revision); cancel();
           sessionConfig = b.sessionConfig ? validateSessionConfig(b.sessionConfig) : defaultSessionConfig();
-          game = fresh(sessionConfig); decisions = []; researchRecords = []; episode = newEpisodeRecord(`episode-${Date.now()}`, game);
+          game = fresh(sessionConfig); decisions = []; researchRecords = []; episode = createEpisode(game, sessionConfig);
           usage = { calls: 0, tokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }; revision++; paused = false; agentError = ''; persist(); break;
         }
         case `${base}/api/action`: {

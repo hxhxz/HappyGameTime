@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { honestHeuristicPolicy, pairedEvaluate, requiredPairCount } from './paired-eval';
+import { defaultPolicyRegistry, pairedEvaluate, requiredPairCount } from './paired-eval';
 
 describe('paired seat-rotated evaluation', () => {
-  it('reports exactly zero for identical policies under common seeds', () => {
-    const policy = honestHeuristicPolicy('same', '抢分型');
-    const result = pairedEvaluate(policy, policy, policy, [101]);
+  it('reports exactly zero for identical policies under common seeds', async () => {
+    const result = await pairedEvaluate('heuristic-honest', 'heuristic-honest', 'heuristic-honest', defaultPolicyRegistry(), [101]);
     expect(result.failures).toEqual([]);
     expect(result.pairs).toBe(1);
     expect(result.seatRotationsPerPair).toBe(4);
@@ -17,4 +16,3 @@ describe('paired seat-rotated evaluation', () => {
     expect(requiredPairCount(0.2, 0.1)).toBe(32);
   });
 });
-

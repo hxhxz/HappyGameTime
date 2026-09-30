@@ -3,6 +3,7 @@ import { CARDS } from '../data/cards';
 import { estimateContextTokens, messagesFor, observation } from '../../server/agent';
 import { rankCandidates, type AgentStyle } from '../../server/strategy';
 import { playGreedyGame } from './selfplay';
+import { playerView } from '../decision/views';
 
 const STYLES: AgentStyle[] = ['抢分型', '进化型', '控场型'];
 const compactLegacy = (action: Action, i: number) => ({ i, a: action.type, action });
@@ -26,7 +27,7 @@ export function evaluateHybrid(games = 100, startSeed = 20_000) {
       const style = STYLES[(Math.max(1, state.currentPlayerIndex) - 1) % STYLES.length];
       const candidates = rankCandidates(state, moves, style);
       if (state.currentPlayerIndex > 0) {
-        hybridInputTokens += estimateContextTokens(messagesFor(state, candidates));
+        hybridInputTokens += estimateContextTokens(messagesFor(playerView(state), candidates, { seat: state.currentPlayerIndex, name: state.players[state.currentPlayerIndex].name, personaMode: style === '抢分型' ? 'scoring' : style === '进化型' ? 'evolution' : 'control' }));
         legacyInputTokens += estimateContextTokens(legacyMessages(state, moves));
         calls++;
       }

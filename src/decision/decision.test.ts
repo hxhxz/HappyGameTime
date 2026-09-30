@@ -6,6 +6,7 @@ import { appendReplayStep, newEpisodeRecord, replayEpisode } from './replay';
 import { playerView, publicView, viewHash } from './views';
 import { calibrateProbabilityThreshold, fitLinearRegretGate, linearRegretGate, type RegretGateTrainingExample } from './gate';
 import type { CheapGateFeatures } from './types';
+import { artifactIdentity, batchEpisodeId } from './identity';
 
 const game = () => createGame({
   players: [0, 1].map(index => ({ id: `P${index}`, name: `P${index}`, isAI: index > 0 })),
@@ -26,7 +27,7 @@ describe('honest decision boundary', () => {
 
   it('replays every action with matching legal set, view hash and observation', () => {
     let state = game();
-    const record = newEpisodeRecord('test', state);
+    const record = newEpisodeRecord('test', state, artifactIdentity({ test: true }, 'test-revision'));
     for (let i = 0; i < 5 && !state.isGameOver; i++) {
       const action = legalMoves(state)[0];
       const next = applyAction(state, action);
@@ -34,6 +35,12 @@ describe('honest decision boundary', () => {
       state = next;
     }
     expect(replayEpisode(record)).toEqual(state);
+  });
+
+  it('derives stable batch episode and artifact identities without wall-clock time', () => {
+    const input = { experimentId: 'exp', seed: 7, replicateIndex: 0, seatRotation: 2 };
+    expect(batchEpisodeId(input)).toBe(batchEpisodeId(input));
+    expect(artifactIdentity(input, 'abc')).toEqual(artifactIdentity(input, 'abc'));
   });
 
   it('blocks oracle data and checkpoints from honest training', () => {

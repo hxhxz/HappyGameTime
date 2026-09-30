@@ -1,6 +1,6 @@
 // 引擎公共入口。
 export * from './types';
-export { makeRng, shuffleInPlace, type Rng } from './rng';
+export { makeRng, restoreRng, shuffleInPlace, type Rng, type RngState } from './rng';
 export {
   emptyColorVector,
   emptyPool,

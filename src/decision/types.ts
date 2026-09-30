@@ -1,6 +1,14 @@
 import type { Action, Card, ColorVector, Cost, GameState, PayableToken, PileKey, TokenPool } from '../engine/types';
 
-export const ENV_VERSION = 'decision-platform-v1';
+export const ENV_VERSION = 'decision-platform-v2';
+export const ARTIFACT_SCHEMA_VERSION = 1;
+
+export interface ArtifactIdentity {
+  envVersion: string;
+  schemaVersion: number;
+  codeRevision: string;
+  configHash: string;
+}
 
 export type InformationClass = 'honest_partial' | 'oracle_full';
 export type EvidenceMode = 'masked' | 'marginalized';
@@ -98,6 +106,7 @@ export interface CandidateEvidence {
 }
 
 export interface RegretLabel {
+  artifact: ArtifactIdentity;
   decisionId: string;
   baselineAction: Action;
   bestAction: Action;
@@ -135,6 +144,7 @@ export interface RegretGate {
 }
 
 export interface DatasetManifest {
+  artifact?: ArtifactIdentity;
   informationClass: InformationClass;
   allowedPurposes: Array<'honest_policy' | 'regret_gate' | 'opponent_student' | 'oracle_baseline'>;
   sourceExperimentIds: string[];
@@ -161,6 +171,7 @@ export interface OpponentTeacherLabel {
 }
 
 export interface OpponentStudent {
+  readonly modelVersion: string;
   predict(input: OpponentModelInput): ActionDistribution;
 }
 
@@ -172,6 +183,7 @@ export interface TokenUsage {
 }
 
 export interface DecisionRecord {
+  artifact: ArtifactIdentity;
   decisionId: string;
   episodeId: string;
   envVersion: string;

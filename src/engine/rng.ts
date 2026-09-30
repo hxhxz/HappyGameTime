@@ -1,22 +1,55 @@
-// 种子化伪随机数（mulberry32），保证整局可复现。
+// Counter-based deterministic RNG. A logical stream is isolated from every
+// other stream, and the complete state is serializable for exact replay.
+export interface RngState {
+  algorithm: 'counter32-v1';
+  seed: number;
+  stream: string;
+  counter: number;
+}
+
 export interface Rng {
   next(): number; // [0,1)
   int(maxExclusive: number): number; // [0, maxExclusive)
+  state(): RngState;
+  fork(stream: string): Rng;
 }
 
-export function makeRng(seed: number): Rng {
-  let a = seed >>> 0;
+function hashStream(stream: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < stream.length; i++) hash = Math.imul(hash ^ stream.charCodeAt(i), 0x01000193);
+  return hash >>> 0;
+}
+
+function counterWord(seed: number, stream: string, counter: number): number {
+  let value = (seed ^ hashStream(stream) ^ Math.imul(counter + 1, 0x9e3779b9)) >>> 0;
+  value ^= value >>> 16;
+  value = Math.imul(value, 0x7feb352d);
+  value ^= value >>> 15;
+  value = Math.imul(value, 0x846ca68b);
+  value ^= value >>> 16;
+  return value >>> 0;
+}
+
+export function makeRng(seed: number, stream = 'default', initialCounter = 0): Rng {
+  let counter = initialCounter;
   const next = (): number => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    const value = counterWord(seed >>> 0, stream, counter++);
+    return value / 4294967296;
   };
   return {
     next,
-    int: (maxExclusive: number) => Math.floor(next() * maxExclusive),
+    int: (maxExclusive: number) => {
+      if (!Number.isInteger(maxExclusive) || maxExclusive <= 0) throw new Error('rng.int requires a positive integer bound');
+      return Math.floor(next() * maxExclusive);
+    },
+    state: () => ({ algorithm: 'counter32-v1', seed: seed >>> 0, stream, counter }),
+    fork: child => makeRng(seed, `${stream}/${child}`, 0),
   };
+}
+
+export function restoreRng(state: RngState): Rng {
+  if (state.algorithm !== 'counter32-v1') throw new Error(`unsupported RNG algorithm: ${state.algorithm}`);
+  return makeRng(state.seed, state.stream, state.counter);
 }
 
 /** 原地 Fisher–Yates 洗牌（用给定 rng，确定性）。返回同一数组以便链式。 */

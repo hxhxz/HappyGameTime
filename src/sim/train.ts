@@ -1,57 +1,43 @@
-// 训练启发式 AI 权重:自对弈坐标上升法,适应度 = heuristic(w) 对 greedy 基线的胜率。
-// 运行:npx tsx src/sim/train.ts [每候选对局数]
-import { applyAction, createGame, legalMoves, passTurn, type GameState } from '../engine';
-import { makeRng } from '../engine/rng';
-import { greedyPolicy, type Policy } from '../ai/policies';
-import { heuristicPolicy, DEFAULT_WEIGHTS, type Weights } from '../ai/heuristic';
-import { CARDS } from '../data/cards';
+// Four-player best-response weight search. Every fitness evaluation uses common
+// seeds and complete focal-seat rotation through the shared PolicyRegistry.
+import { DEFAULT_WEIGHTS, type Weights } from '../ai/heuristic';
+import { pairedEvaluate, defaultPolicyRegistry } from '../../server/paired-eval';
+import { CandidateTopPolicy } from '../../server/policy-registry';
 
-function play2p(seed: number, p0: Policy, p1: Policy): 0 | 1 | null {
-  let s: GameState = createGame({ players: [{ id: 'P0', name: 'A', isAI: true }, { id: 'P1', name: 'B', isAI: true }], cards: CARDS, seed });
-  const rng = makeRng((seed ^ 0x1234) >>> 0);
-  let it = 0;
-  while (!s.isGameOver) {
-    if (it++ > 2000) break;
-    const m = legalMoves(s);
-    if (!m.length) { s = passTurn(s); continue; }
-    s = applyAction(s, (s.currentPlayerIndex === 0 ? p0 : p1)(m, s, rng));
-  }
-  if (!s.winnerId) return null;
-  return s.winnerId === 'P0' ? 0 : 1;
+const N = Number(process.argv[2] ?? 12);
+const TRAIN_SEEDS = Array.from({ length: N }, (_, index) => 10_000 + index);
+const TEST_SEEDS = Array.from({ length: Math.max(4, Math.ceil(N / 2)) }, (_, index) => 90_000 + index);
+const ANCHOR = 'heuristic-honest';
+
+async function fitness(weights: Weights, seeds: number[]): Promise<number> {
+  const candidate = new CandidateTopPolicy('candidate', 'coordinate-search-v2', weights);
+  const report = await pairedEvaluate(candidate.id, ANCHOR, ANCHOR, defaultPolicyRegistry([candidate]), seeds);
+  if (report.failures.length) throw new Error(report.failures.join('; '));
+  return report.meanDelta;
 }
 
-const SEED0 = 7;
-function fitness(w: Weights, n: number): number {
-  const h = heuristicPolicy(w);
-  let wins = 0, games = 0;
-  for (let i = 0; i < n; i++) {
-    const seed = SEED0 + i;
-    const r = i % 2 === 0 ? play2p(seed, h, greedyPolicy) : play2p(seed, greedyPolicy, h);
-    if (r === null) continue;
-    games++;
-    if ((i % 2 === 0 && r === 0) || (i % 2 === 1 && r === 1)) wins++;
-  }
-  return games ? wins / games : 0;
-}
-
-const KEYS = Object.keys(DEFAULT_WEIGHTS) as (keyof Weights)[];
-const N = Number(process.argv[2] ?? 40);
+const keys = Object.keys(DEFAULT_WEIGHTS) as (keyof Weights)[];
 let best: Weights = { ...DEFAULT_WEIGHTS };
-let bestFit = fitness(best, N);
-console.log(`init fitness vs greedy (n=${N}): ${bestFit.toFixed(3)}`);
+let bestFit = await fitness(best, TRAIN_SEEDS);
+console.log(`init paired rank delta vs ${ANCHOR} (pairs=${N}, four seat rotations): ${bestFit.toFixed(4)}`);
 
 for (let pass = 0; pass < 3; pass++) {
-  for (const k of KEYS) {
+  for (const key of keys) {
     for (const delta of [1.6, 1 / 1.6]) {
-      const cand: Weights = { ...best, [k]: Math.max(0, best[k] * delta) };
-      const f = fitness(cand, N);
-      if (f > bestFit + 0.001) {
-        bestFit = f; best = cand;
-        console.log(`  + ${k} *${delta.toFixed(2)} -> ${f.toFixed(3)}`);
+      const candidate: Weights = { ...best, [key]: Math.max(0, best[key] * delta) };
+      const score = await fitness(candidate, TRAIN_SEEDS);
+      if (score > bestFit + 0.001) {
+        bestFit = score;
+        best = candidate;
+        console.log(`  + ${key} *${delta.toFixed(2)} -> ${score.toFixed(4)}`);
       }
     }
   }
-  console.log(`pass ${pass}: ${bestFit.toFixed(3)} ${JSON.stringify(best)}`);
+  console.log(`pass ${pass}: ${bestFit.toFixed(4)} ${JSON.stringify(best)}`);
 }
-console.log('FINAL_FITNESS', bestFit.toFixed(3));
+
+const testFit = await fitness(best, TEST_SEEDS);
+console.log('TRAIN_PAIRED_DELTA', bestFit.toFixed(4));
+console.log('TEST_PAIRED_DELTA', testFit.toFixed(4));
 console.log('FINAL_WEIGHTS', JSON.stringify(best));
+console.log('SEMANTICS', 'four-player best-response against frozen honest heuristic opponents; not self-play');

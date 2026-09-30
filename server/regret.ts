@@ -1,6 +1,6 @@
 import { applyAction, legalMoves, passTurn, type Action, type GameState } from '../src/engine';
 import { makeRng, shuffleInPlace } from '../src/engine/rng';
-import type { RegretLabel } from '../src/decision/types';
+import type { ArtifactIdentity, RegretLabel } from '../src/decision/types';
 import { rankCandidates, type AgentStyle } from './strategy';
 
 const TURN_CAP = 2_000;
@@ -72,6 +72,7 @@ function ci95(values: number[]): [number, number] {
 }
 
 export interface RegretHarnessOptions {
+  artifact: ArtifactIdentity;
   decisionId: string;
   baselineAction: Action;
   rolloutPairs: number;
@@ -105,6 +106,7 @@ export function labelDecisionRegret(state: GameState, options: RegretHarnessOpti
   const expectedRegret = mean(pairedRegrets);
   const [ciLow, ciHigh] = ci95(pairedRegrets);
   return {
+    artifact: options.artifact,
     decisionId: options.decisionId,
     baselineAction: structuredClone(options.baselineAction), bestAction: structuredClone(bestAction),
     expectedRegret, ciLow, ciHigh, rolloutPairs: options.rolloutPairs,

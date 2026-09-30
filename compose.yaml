@@ -1,6 +1,9 @@
 services:
   pokemon-trainer:
-    build: .
+    build:
+      context: .
+      args:
+        CODE_REVISION: ${CODE_REVISION:-unknown}
     image: pokemon-trainer:2026-09-30
     container_name: pokemon-trainer
     restart: unless-stopped

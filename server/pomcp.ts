@@ -55,6 +55,7 @@ function chooseOpponent(state: GameState, legal: Action[], opponent: OpponentStu
 }
 
 export const uniformOpponentStudent: OpponentStudent = {
+  modelVersion: 'uniform-public-v1',
   predict: input => ({
     modelVersion: 'uniform-public-v1',
     probabilities: input.legalActions.map(action => ({ action, probability: 1 / input.legalActions.length })),
@@ -126,4 +127,3 @@ export function pomcpHonest(root: GameState, options: PomcpOptions): PomcpResult
   }
   return { action, evidence, elapsedMs: Date.now() - started, simulations: options.simulations, depthPly };
 }
-

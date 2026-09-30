@@ -3,6 +3,10 @@ import { endpoint, publicAddress, observation, parseDecision, messagesFor, estim
 import { createGame, legalMoves } from '../src/engine';
 import { CARDS } from '../src/data/cards';
 import { rankCandidates } from './strategy';
+import { playerView } from '../src/decision/views';
+
+const prompt = (g: ReturnType<typeof createGame>, candidates: ReturnType<typeof rankCandidates>, name: string, personaMode: 'neutral' | 'scoring' | 'evolution' | 'control') =>
+  messagesFor(playerView(g), candidates, { seat: g.currentPlayerIndex, name, personaMode });
 
 describe('model boundary', () => {
   it('normalizes compatible URLs and rejects unsafe endpoints', () => {
@@ -24,9 +28,9 @@ describe('model boundary', () => {
     const g = createGame({ players: [0,1,2,3].map(i=>({id:`P${i}`,name:i ? ['赤焰','青岚','紫苑'][i-1] : '你',isAI:i>0})), cards: CARDS, seed: 17 });
     g.currentPlayerIndex = 2;
     const candidates = rankCandidates(g, legalMoves(g), '进化型');
-    const messages = messagesFor(g, candidates);
+    const messages = prompt(g, candidates, '青岚', 'evolution');
     const body = JSON.parse(messages[1].content);
-    expect(body.youAre).toEqual({ seat: 2, name: '青岚', style: '进化型', points: 0 });
+    expect(body.youAre).toEqual({ seat: 2, name: '青岚', personaMode: 'evolution', points: 0 });
     expect(body.candidateActions.length).toBeLessThanOrEqual(8);
     expect(body.candidateActions[0].outcome).toBeTruthy();
     expect(body.candidateActions[0].heuristicScore).toBe(candidates[0].score);
@@ -35,11 +39,11 @@ describe('model boundary', () => {
   it('keeps a substantial identical prefix across agents and changing game states', () => {
     const g = createGame({ players: [0,1,2,3].map(i=>({id:`P${i}`,name:i ? ['赤焰','青岚','紫苑'][i-1] : '你',isAI:i>0})), cards: CARDS, seed: 18 });
     g.currentPlayerIndex = 1;
-    const first = messagesFor(g, rankCandidates(g, legalMoves(g), '抢分型'));
+    const first = prompt(g, rankCandidates(g, legalMoves(g), '抢分型'), '赤焰', 'scoring');
     g.currentPlayerIndex = 3;
     g.players[3].points = 11;
     g.log.push('局面发生变化');
-    const second = messagesFor(g, rankCandidates(g, legalMoves(g), '控场型'));
+    const second = prompt(g, rankCandidates(g, legalMoves(g), '控场型'), '紫苑', 'control');
     expect(first[0]).toEqual(second[0]);
     expect(first[0].content).toBe(STATIC_SYSTEM_PROMPT);
     expect(estimateContextTokens([first[0]])).toBeGreaterThan(64);
@@ -72,17 +76,17 @@ describe('model boundary', () => {
     const g = createGame({ players: [0,1,2,3].map(i=>({id:`P${i}`,name:`P${i}`,isAI:i>0})), cards: CARDS, seed: 8 });
     g.currentPlayerIndex = 1;
     CARDS.slice(0, 64).forEach((card, i) => g.players[i % 4].purchased.push(card));
-    const messages = messagesFor(g, rankCandidates(g, [{ type: 'END_TURN' }], '抢分型'));
+    const messages = prompt(g, rankCandidates(g, [{ type: 'END_TURN' }], '抢分型'), '赤焰', 'scoring');
     expect(estimateContextTokens(messages) + MAX_OUTPUT_TOKENS + CONTEXT_SAFETY_TOKENS).toBeLessThanOrEqual(MAX_CONTEXT_TOKENS);
   });
   it('uses a bounded recent suffix instead of flooding the model with stale history', () => {
     const g = createGame({ players: [0,1,2,3].map(i=>({id:`P${i}`,name:`P${i}`,isAI:i>0})), cards: CARDS, seed: 9 });
     g.currentPlayerIndex = 1;
     g.log = Array.from({ length: 10_000 }, (_, i) => `第${i}步 ${'x'.repeat(80)}`);
-    const messages = messagesFor(g, rankCandidates(g, [{ type: 'END_TURN' }], '抢分型'));
+    const messages = prompt(g, rankCandidates(g, [{ type: 'END_TURN' }], '抢分型'), '赤焰', 'scoring');
     const body = JSON.parse(messages[1].content);
-    expect(body.state.recentLog.at(-1)).toBe(g.log.at(-1));
-    expect(body.state.recentLog.length).toBe(MAX_RECENT_LOG_ENTRIES);
+    expect(body.state.recentPublicHistory.at(-1)).toBe(g.log.at(-1));
+    expect(body.state.recentPublicHistory.length).toBe(MAX_RECENT_LOG_ENTRIES);
     expect(estimateContextTokens(messages) + MAX_OUTPUT_TOKENS + CONTEXT_SAFETY_TOKENS).toBeLessThanOrEqual(MAX_CONTEXT_TOKENS);
   });
 });
