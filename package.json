@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "sim": "tsx src/sim/selfplay.ts",
+    "eval:paired": "tsx server/paired-eval.ts",
     "server": "tsx server/trainer.ts",
     "sprites": "node scripts/fetch-sprites.mjs",
     "bundle:server": "esbuild server/trainer.ts --bundle --platform=node --format=esm --outfile=build/server.mjs"

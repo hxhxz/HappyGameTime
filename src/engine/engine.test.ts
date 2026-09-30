@@ -99,6 +99,21 @@ describe('购买与大师球', () => {
   });
 });
 
+describe('信念元数据', () => {
+  it('记录盲抽来源并在预订牌公开使用后移除', () => {
+    const g = newGame();
+    const reserved = applyAction(g, { type: 'RESERVE', source: { kind: 'deck', pile: 1 } });
+    const card = reserved.players[0].reserved[0];
+    expect(reserved.reservationOrigins[card.id]).toEqual({ kind: 'deck', pile: 1 });
+    reserved.currentPlayerIndex = 0;
+    reserved.awaitingEvolve = false;
+    reserved.players[0].tokens = { red: 7, blue: 7, black: 7, pink: 7, yellow: 7, master: 5 };
+    const buy = legalMoves(reserved).find(action => action.type === 'BUY' && action.source.kind === 'reserved' && action.source.cardId === card.id);
+    expect(buy).toBeDefined();
+    expect(applyAction(reserved, buy!).reservationOrigins[card.id]).toBeUndefined();
+  });
+});
+
 describe('进化(回合末免费动作)', () => {
   it('满足加成需求且目标在展示区时可进化,低阶入面朝下、高阶计分', () => {
     const g = newGame();

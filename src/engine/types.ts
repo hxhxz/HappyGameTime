@@ -107,6 +107,8 @@ export interface GameState {
   awaitingEvolve: boolean; // 主动作后，可执行 1 次回合末进化或跳过
 
   rngSeed: number;
+  /** Reservation provenance is simulator-only belief metadata; never project it into a policy view. */
+  reservationOrigins: Record<string, { kind: 'board' | 'deck'; pile: Stage }>;
   log: string[];
 }
 

@@ -7,12 +7,14 @@ export function serializeState(state: GameState): string {
 
 export function deserializeState(json: string): GameState {
   const obj = JSON.parse(json) as GameState;
+  obj.reservationOrigins ??= {};
   for (const p of obj.players) p.ownedSpecies = computeOwnedSpecies(p.purchased);
   return obj;
 }
 
 /** 结构化克隆同款重建(用于把对象形态的 state 复原 Set,而非从字符串)。 */
 export function reviveState(obj: GameState): GameState {
+  obj.reservationOrigins ??= {};
   for (const p of obj.players) p.ownedSpecies = computeOwnedSpecies(p.purchased);
   return obj;
 }

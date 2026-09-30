@@ -119,6 +119,7 @@ function applyReserve(state: GameState, me: PlayerState, action: Extract<Action,
     if (!found) throw new Error('预订目标不在展示区');
     if (found.card.kind !== 'normal') throw new Error('稀有/传说卡不可预订');
     card = found.card;
+    state.reservationOrigins[card.id] = { kind: 'board', pile: found.pile as Stage };
     refill(state, found.pile, found.slot);
   } else {
     const pile = action.source.pile as Stage;
@@ -126,6 +127,7 @@ function applyReserve(state: GameState, me: PlayerState, action: Extract<Action,
     const deck = state.decks[pile];
     if (deck.drawPile.length === 0) throw new Error('该层牌库已空');
     card = deck.drawPile.shift()!;
+    state.reservationOrigins[card.id] = { kind: 'deck', pile };
   }
   me.reserved.push(card);
   if (state.tokenPool.master > 0) {
@@ -147,6 +149,7 @@ function applyBuy(state: GameState, me: PlayerState, action: BuyAction): void {
     if (i < 0) throw new Error('购买目标不在预订区');
     card = me.reserved[i];
     me.reserved.splice(i, 1);
+    delete state.reservationOrigins[card.id];
   }
 
   const pay = computePayment(me, card);
@@ -198,6 +201,7 @@ function applyEvolve(state: GameState, me: PlayerState, action: EvolveAction): v
     if (i >= 0) {
       target = me.reserved[i];
       me.reserved.splice(i, 1);
+      delete state.reservationOrigins[target.id];
     }
   }
   if (!target) throw new Error('进化目标不可用');

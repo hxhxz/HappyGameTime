@@ -96,6 +96,7 @@ export function createGame(opts: NewGameOptions): GameState {
     awaitingDiscard: false,
     awaitingEvolve: false,
     rngSeed: opts.seed,
+    reservationOrigins: {},
     log: [],
   };
 }

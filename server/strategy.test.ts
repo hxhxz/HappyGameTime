@@ -60,4 +60,20 @@ describe('hybrid candidate strategy', () => {
     expect(firstScore).toBe(secondScore);
     expect(first).toBeGreaterThanOrEqual((1 + cheap.points * 0.3) / 2);
   });
+
+  it('does not infer an opponent blind-reserved identity from its absence in the deck', () => {
+    const game = createGame({ players: [0, 1].map(i => ({ id: `P${i}`, name: `P${i}`, isAI: true })), cards: CARDS, seed: 29 });
+    const target = structuredClone(game.decks[1].faceUp[0]!); target.cost = {};
+    game.decks[1].faceUp[0] = target;
+    const hiddenA = game.decks[1].drawPile[0];
+    const hiddenB = game.decks[1].drawPile[1];
+    game.players[1].reserved.push(hiddenA);
+    game.decks[1].drawPile.splice(0, 1);
+    const buy = legalMoves(game).find(move => move.type === 'BUY' && move.source.cardId === target.id)!;
+    const first = rankCandidates(game, [buy], '抢分型')[0].score;
+    game.players[1].reserved[0] = hiddenB;
+    game.decks[1].drawPile[0] = hiddenA;
+    const second = rankCandidates(game, [buy], '抢分型')[0].score;
+    expect(first).toBe(second);
+  });
 });

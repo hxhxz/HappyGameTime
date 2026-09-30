@@ -28,10 +28,12 @@ describe('private trainer HTTP flow',()=>{
   it('needs no model configuration and hides decks',async()=>{
     const state=(await request('state')).data;
     expect(state.configured).toBe(true);
-    expect(state.settings).toEqual({baseUrl:'',model:'本地规则引擎',hasKey:false});
+    expect(state.settings).toEqual({model:'本地规则引擎',hasKey:false,profiles:[]});
+    expect(state.sessionConfig.mode).toBe('play');
     expect(state.game.players).toHaveLength(4);
     expect(state.game.players.filter((p:{isAI:boolean})=>p.isAI)).toHaveLength(3);
     expect(state.game.decks[1].drawPile[0]).toEqual({id:'hidden'});
+    expect(state.game.reservationOrigins).toBeUndefined();
     expect((await request('settings',{})).status).toBe(404);
   });
   it('rejects illegal actions, foreign-origin requests and stale revisions',async()=>{
@@ -61,5 +63,9 @@ describe('private trainer HTTP flow',()=>{
     expect(exported.data.decisions[0].heuristicScore).toEqual(expect.any(Number));
     expect(exported.data.decisions[0].heuristicTerms.total).toBe(exported.data.decisions[0].heuristicScore);
     expect(exported.data.decisions[0].legalActionLabels.length).toBeGreaterThan(0);
+    expect(exported.data.researchRecords).toHaveLength(3);
+    expect(exported.data.researchRecords[0].informationClass).toBe('honest_partial');
+    expect(exported.data.researchRecords[0].inputView).toBeTruthy();
+    expect(exported.data.episode.steps).toHaveLength(4);
   },10000);
 });

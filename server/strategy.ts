@@ -1,6 +1,6 @@
 import { applyAction, buildBuyAction, totalTokens, type Action, type Card, type GameState, type PlayerState } from '../src/engine';
 import { evaluationTerms, DEFAULT_WEIGHTS, type EvaluationTerms } from '../src/ai/heuristic';
-import { ALL_PILES, COLOR_ORDER, WIN_THRESHOLD } from '../src/engine/types';
+import { ALL_PILES, COLOR_ORDER, WIN_THRESHOLD, pileOf, type PileKey } from '../src/engine/types';
 
 export type AgentStyle = '抢分型' | '进化型' | '控场型';
 export const DEFAULT_CANDIDATE_LIMIT = 8;
@@ -133,7 +133,22 @@ export function expectedAffordableCardValue(state: GameState, afterPlayer: Playe
       value += affordableValue(afterPlayer, card);
     }
     if (removedFromPile && state.decks[pile].drawPile.length > 0) {
-      const possible = state.decks[pile].drawPile;
+      // Opponent blind reservations are not public identities. The honest refill
+      // belief therefore includes every opponent-reserved card that could have
+      // come from this pile, rather than inferring its identity from its absence
+      // in the concrete simulator deck. Legacy state lacks reservation provenance,
+      // so treating all opponent reservations from the same pile as unknown is a
+      // conservative, non-leaking marginalization.
+      const possible = [
+        ...state.decks[pile].drawPile,
+        ...state.players
+          .filter(player => player.id !== afterPlayer.id)
+          .flatMap(player => player.reserved)
+          .filter(card => {
+            const origin = state.reservationOrigins?.[card.id];
+            return pileOf(card) === pile as PileKey && (!origin || origin.kind === 'deck');
+          }),
+      ];
       value += possible.reduce((sum, card) => sum + affordableValue(afterPlayer, card), 0) / possible.length;
     }
   }

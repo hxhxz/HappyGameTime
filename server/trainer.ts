@@ -7,8 +7,14 @@ import { createGame, applyAction, legalMoves, passTurn, type GameState, type Act
 import { PAYABLE_ORDER } from '../src/engine/types';
 import { CARDS } from '../src/data/cards';
 import { serializeState, deserializeState } from '../src/net/serialize';
+import { appendReplayStep, newEpisodeRecord, type EpisodeRecord } from '../src/decision/replay';
+import { cheapGateFeatures } from '../src/decision/gate';
+import { ENV_VERSION, type CandidateEvidence, type DecisionRecord, type HeuristicEvidence } from '../src/decision/types';
+import { playerView, publicView, viewHash } from '../src/decision/views';
 import { AGENTS } from './agents';
 import { actionLabel, candidateDebugLine, candidateExplanation, rankCandidates, type CandidateScoreTerms } from './strategy';
+import { completion, messagesFor, parseDecision } from './agent';
+import { configuredRegretGate, defaultSessionConfig, modelSettings, publicModelProfiles, validateSessionConfig, type SessionConfig } from './platform';
 
 const dataDir = resolve(process.env.DATA_DIR || 'data');
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -25,31 +31,43 @@ interface Decision {
   turn: number; name: string; style: string; action: string; explanation: string; tokens: number;
   promptTokens?: number; cacheHitTokens?: number; cacheMissTokens?: number;
   chosenActionId?: number;
-  modelInput?: { role: string; content: string }[];
   legalActionLabels?: string[];
   heuristicScore?: number;
   heuristicTerms?: CandidateScoreTerms;
+  policyVersion?: string;
+  gateTriggered?: boolean;
+  modelProfileId?: string;
+  modelInput?: { role: string; content: string }[];
+  rawCompletion?: string;
+  fallbackUsed?: boolean;
 }
 let game: GameState;
 let decisions: Decision[] = [];
+let researchRecords: DecisionRecord[] = [];
+let sessionConfig: SessionConfig = defaultSessionConfig();
+let episode: EpisodeRecord;
 let revision = 0;
 let paused = true;
 let thinking = false;
 let agentError = '';
 let generation = 0;
 let usage = { calls: 0, tokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 };
-function fresh() {
-  return createGame({ players: [{ id: 'P0', name: '你', isAI: false }, ...AGENTS.map((a, i) => ({ id: `P${i + 1}`, name: a.name, isAI: true }))], cards: CARDS, seed: randomBytes(4).readUInt32LE() });
+function fresh(config = sessionConfig) {
+  return createGame({ players: config.seats.map((seat, i) => ({ id: `P${i}`, name: seat.name, isAI: seat.kind !== 'human' })), cards: CARDS, seed: randomBytes(4).readUInt32LE() });
 }
 if (existsSync(stateFile)) {
   const saved = JSON.parse(readFileSync(stateFile, 'utf8'));
   game = deserializeState(JSON.stringify(saved.game)); decisions = saved.decisions || []; revision = saved.revision || 0;
   usage = { ...usage, ...(saved.usage || {}) };
-} else game = fresh();
+  researchRecords = saved.researchRecords || [];
+  sessionConfig = saved.sessionConfig ? validateSessionConfig(saved.sessionConfig) : defaultSessionConfig();
+  episode = saved.episode ? { ...saved.episode, initialState: deserializeState(JSON.stringify(saved.episode.initialState)) } : newEpisodeRecord(`episode-${Date.now()}`, game);
+} else { game = fresh(); episode = newEpisodeRecord(`episode-${Date.now()}`, game); }
 function atomic(path: string, text: string) { writeFileSync(`${path}.tmp`, text, { mode: 0o600 }); renameSync(`${path}.tmp`, path); }
-function persist() { atomic(stateFile, JSON.stringify({ game: JSON.parse(serializeState(game)), decisions, revision, usage })); }
+function serializableEpisode() { return { ...episode, initialState: JSON.parse(serializeState(episode.initialState)) }; }
+function persist() { atomic(stateFile, JSON.stringify({ game: JSON.parse(serializeState(game)), decisions, researchRecords, sessionConfig, episode: serializableEpisode(), revision, usage })); }
 function configured() { return true; }
-function publicSettings() { return { baseUrl: '', model: '本地规则引擎', hasKey: false }; }
+function publicSettings() { return { model: sessionConfig.mode === 'play' ? '本地规则引擎' : '实验模式', hasKey: publicModelProfiles().some(profile => profile.configured), profiles: publicModelProfiles() }; }
 function decisionSummary(d: Decision) {
   const { turn, name, style, action, explanation, tokens } = d;
   return { turn, name, style, action, explanation, tokens };
@@ -57,9 +75,10 @@ function decisionSummary(d: Decision) {
 function view() {
   const visible = JSON.parse(serializeState(game));
   visible.rngSeed = 0;
+  delete visible.reservationOrigins;
   for (const d of Object.values(visible.decks) as { drawPile: unknown[] }[]) d.drawPile = Array(d.drawPile.length).fill({ id: 'hidden' });
   visible.players.forEach((p: { reserved: unknown[] }, i: number) => { if (i) p.reserved = p.reserved.map((_, j) => ({ id: `hidden-${i}-${j}` })); });
-  return { game: visible, decisions: decisions.map(decisionSummary), revision, paused, thinking, agentError, configured: configured(), settings: publicSettings(), usage };
+  return { game: visible, decisions: decisions.map(decisionSummary), revision, paused, thinking, agentError, configured: configured(), settings: publicSettings(), usage, sessionConfig };
 }
 function cancel() { generation++; thinking = false; }
 async function tick() {
@@ -70,21 +89,79 @@ async function tick() {
   try {
     if (!moves.length) { game = passTurn(game); revision++; persist(); return; }
     const agent = AGENTS[snapshot.currentPlayerIndex - 1];
-    const candidates = rankCandidates(snapshot, moves, agent.style);
+    const seat = sessionConfig.seats[snapshot.currentPlayerIndex];
+    const style = seat && seat.kind !== 'human' ? seat.style : agent.style;
+    const candidates = rankCandidates(snapshot, moves, style);
     if (process.env.DEBUG_HEURISTIC === '1') candidates.forEach((candidate, i) => console.debug(candidateDebugLine(candidate, i + 1, snapshot)));
     if (ticket !== generation) return;
-    const choice = candidates[0];
+    const baseline = candidates[0];
+    let choice = baseline;
+    let modelInput: { role: string; content: string }[] | undefined;
+    let rawCompletion: string | undefined;
+    let parsedOutput: unknown;
+    let latencyMs = 0;
+    let fallbackUsed = false;
+    let fallbackReason: string | undefined;
+    const pv = playerView(snapshot);
+    const evidence: CandidateEvidence[] = candidates.map(candidate => ({
+      action: candidate.action,
+      heuristic: { terms: flattenTerms(candidate.terms), total: candidate.score, mode: 'marginalized' } satisfies HeuristicEvidence,
+    }));
+    const gate = configuredRegretGate();
+    const prediction = gate.predict(cheapGateFeatures(pv, evidence));
+    const gateAvailable = prediction.modelVersion !== 'disabled-v1';
+    const gateTriggered = seat?.kind === 'llm' && (seat.invocationMode === 'always' || (gateAvailable && prediction.highRegretProbability >= sessionConfig.gateThreshold));
+    let llmUsage = { total: 0, prompt: 0, cacheHit: 0, cacheMiss: 0 };
+    if (gateTriggered && seat.kind === 'llm') {
+      modelInput = messagesFor(snapshot, candidates);
+      const started = Date.now();
+      try {
+        const result = await completion(modelSettings(seat.modelProfileId), modelInput);
+        latencyMs = Date.now() - started;
+        rawCompletion = result.content;
+        parsedOutput = parseDecision(result.content, candidates.length, snapshot.players[snapshot.currentPlayerIndex].points);
+        choice = candidates[(parsedOutput as { actionId: number }).actionId];
+        llmUsage = { total: result.tokens, prompt: result.promptTokens, cacheHit: result.cacheHitTokens, cacheMiss: result.cacheMissTokens };
+        usage.calls++; usage.tokens += result.tokens; usage.cacheHitTokens += result.cacheHitTokens; usage.cacheMissTokens += result.cacheMissTokens;
+      } catch (error) {
+        latencyMs = Date.now() - started;
+        fallbackUsed = true;
+        fallbackReason = error instanceof Error ? error.message : 'LLM failure';
+        choice = baseline;
+      }
+    }
     const action = choice.action;
     game = applyAction(snapshot, action);
-    if (!['BUY','EVOLVE'].includes(action.type)) game.log.push(`${agent.name} ${actionLabel(action, snapshot)}`);
+    appendReplayStep(episode, snapshot, action, game);
+    if (!['BUY','EVOLVE'].includes(action.type)) game.log.push(`${seat?.name ?? agent.name} ${actionLabel(action, snapshot)}`);
     decisions.push({
-      turn: snapshot.turnNumber, name: agent.name, style: agent.style,
-      action: actionLabel(action, snapshot), explanation: candidateExplanation(choice), tokens: 0,
-      promptTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0,
-      chosenActionId: 0, heuristicScore: choice.score, heuristicTerms: choice.terms,
+      turn: snapshot.turnNumber, name: seat?.name ?? agent.name, style,
+      action: actionLabel(action, snapshot), explanation: (parsedOutput as { explanation?: string } | undefined)?.explanation ?? candidateExplanation(choice), tokens: llmUsage.total,
+      promptTokens: llmUsage.prompt, cacheHitTokens: llmUsage.cacheHit, cacheMissTokens: llmUsage.cacheMiss,
+      chosenActionId: candidates.indexOf(choice), heuristicScore: choice.score, heuristicTerms: choice.terms,
       legalActionLabels: candidates.map(c => actionLabel(c.action, snapshot)),
+      policyVersion: seat?.kind === 'llm' ? `llm-reranker-${seat.invocationMode}-v1` : 'honest-heuristic-v1',
+      gateTriggered, modelProfileId: seat?.kind === 'llm' ? seat.modelProfileId : undefined,
+      modelInput, rawCompletion, fallbackUsed,
+    });
+    researchRecords.push({
+      decisionId: `${episode.episodeId}:${episode.steps.length - 1}`,
+      episodeId: episode.episodeId, envVersion: ENV_VERSION,
+      policyVersion: seat?.kind === 'llm' ? `llm-reranker-${seat.invocationMode}-v1` : 'honest-heuristic-v1',
+      playerId: snapshot.players[snapshot.currentPlayerIndex].id,
+      informationClass: 'honest_partial', viewCondition: 'partial', inputView: pv, inputViewHash: viewHash(pv),
+      legalActions: moves, candidateEvidence: evidence,
+      gateDecision: seat?.kind === 'llm' ? { modelVersion: prediction.modelVersion, expectedRegret: prediction.expectedRegret, highRegretProbability: prediction.highRegretProbability, threshold: sessionConfig.gateThreshold, triggered: gateTriggered } : undefined,
+      llm: gateTriggered && seat?.kind === 'llm' ? {
+        slot: 'reranker', modelProfileId: seat.modelProfileId, promptProfileId: 'pokemon-reranker-v2',
+        exactMessages: modelInput ?? [], rawResponse: rawCompletion ?? null, parsedOutput,
+        samplingParams: { mode: seat.invocationMode }, latencyMs, tokenUsage: llmUsage, error: fallbackReason,
+      } : undefined,
+      baselineAction: baseline.action, chosenAction: action, fallbackUsed, fallbackReason,
+      observation: publicView(game), reward: { pointsDelta: game.players[snapshot.currentPlayerIndex].points - snapshot.players[snapshot.currentPlayerIndex].points },
     });
     decisions = decisions.slice(-200);
+    researchRecords = researchRecords.slice(-2_000);
     revision++; persist();
   } catch (e) {
     if (ticket === generation) { paused = true; agentError = e instanceof Error ? e.message : '模型请求失败'; persist(); }
@@ -92,18 +169,27 @@ async function tick() {
     if (ticket === generation) { thinking = false; if (!paused) setTimeout(() => void tick(), 800); }
   }
 }
+
+function flattenTerms(value: unknown, prefix = '', out: Record<string, number | boolean> = {}): Record<string, number | boolean> {
+  if (typeof value === 'number' || typeof value === 'boolean') { out[prefix || 'value'] = value; return out; }
+  if (value && typeof value === 'object') for (const [key, child] of Object.entries(value as Record<string, unknown>)) flattenTerms(child, prefix ? `${prefix}.${key}` : key, out);
+  return out;
+}
 function json(res: ServerResponse, status: number, obj: unknown) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); }
 function exportRecord(res: ServerResponse) {
   const visible = view().game;
   const record = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: new Date().toISOString(),
     game: { turn: game.turnNumber, isGameOver: game.isGameOver, winnerId: game.winnerId, state: visible },
-    model: 'local-rules-engine',
+    model: sessionConfig.mode === 'play' ? 'local-rules-engine' : 'mixed-experiment',
     agents: AGENTS.map(({ name, style, prompt }) => ({ name, style, prompt })),
     usage,
     decisions,
-    notes: '当前版本直接执行规则引擎最高分候选，不调用外部模型；旧决策可能包含 modelInput。',
+    researchRecords,
+    sessionConfig,
+    episode: serializableEpisode(),
+    notes: 'schema v2: 规则入口零模型依赖；实验入口记录实际玩家视图、候选证据、门控判断、模型输入与原始响应。',
   };
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   res.writeHead(200, {
@@ -175,14 +261,17 @@ export const server = createServer(async (req, res) => {
       const b = await body(req);
       switch (path) {
         case `${base}/api/new`: {
-          ensureRevision(b.revision); cancel(); game = fresh(); decisions = []; usage = { calls: 0, tokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }; revision++; paused = false; agentError = ''; persist(); break;
+          ensureRevision(b.revision); cancel();
+          sessionConfig = b.sessionConfig ? validateSessionConfig(b.sessionConfig) : defaultSessionConfig();
+          game = fresh(sessionConfig); decisions = []; researchRecords = []; episode = newEpisodeRecord(`episode-${Date.now()}`, game);
+          usage = { calls: 0, tokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }; revision++; paused = false; agentError = ''; persist(); break;
         }
         case `${base}/api/action`: {
           ensureRevision(b.revision);
           if (game.currentPlayerIndex !== 0 || game.isGameOver) throw new Error('现在不是你的回合');
           const action = normalizeAction(b.action); const next = applyAction(game, action);
           if (!['BUY','EVOLVE'].includes(action.type)) next.log.push(`你 ${actionLabel(action, game)}`);
-          game = next; revision++; persist(); break;
+          appendReplayStep(episode, game, action, next); game = next; revision++; persist(); break;
         }
         case `${base}/api/pause`: cancel(); paused = true; break;
         case `${base}/api/resume`: paused = false; agentError = ''; break;
